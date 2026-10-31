@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Brand } from "@/components/brand";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,7 +57,10 @@ export default function InvitePage() {
   const unauthenticated = me.error instanceof ApiError && me.error.status === 401;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-muted/40 px-4 py-10">
+    <main className="relative flex min-h-screen flex-col items-center justify-center bg-surface px-4 py-10">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <Brand className="mb-6 text-lg" href="/dashboard" />
       <Card className="w-full max-w-md">
         <CardHeader>

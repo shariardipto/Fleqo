@@ -5,13 +5,15 @@ import { env, isProduction } from "../config/env.ts";
 import { recordAudit } from "../modules/audit/audit.service.ts";
 import { ac, roles } from "./permissions.ts";
 import { prisma } from "./prisma.ts";
+import { socialProviders } from "./social-providers.ts";
 
 export const auth = betterAuth({
   appName: "Fleqo",
   baseURL: env.BETTER_AUTH_URL,
   basePath: "/api/auth",
   secret: env.BETTER_AUTH_SECRET,
-  trustedOrigins: env.WEB_ORIGINS,
+  // Apple returns from sign-in with a form POST from its own origin.
+  trustedOrigins: socialProviders.providers.apple ? [...env.WEB_ORIGINS, "https://appleid.apple.com"] : env.WEB_ORIGINS,
   database: prismaAdapter(prisma, { provider: "postgresql", transaction: true }),
   // Emails are not verified in the MVP, so invitations must never be discoverable by email.
   // Invitees accept through an invite link (the random invitation ID) shared by the inviter.
@@ -21,6 +23,19 @@ export const auth = betterAuth({
     minPasswordLength: 8,
     maxPasswordLength: 128,
     autoSignIn: true,
+  },
+  socialProviders: socialProviders.providers,
+  account: {
+    accountLinking: {
+      enabled: true,
+      // A social identity is only merged into an existing account when BOTH sides prove the email:
+      // the provider says it is verified and the local account's email is verified. Email/password
+      // accounts are unverified in the MVP, so a pre-registered (possibly attacker-owned) account can
+      // never capture someone's Google/GitHub/Apple/X identity.
+      requireLocalEmailVerified: true,
+      trustedProviders: [],
+      allowDifferentEmails: false,
+    },
   },
   session: {
     expiresIn: 60 * 60 * 24 * 7,
@@ -34,6 +49,10 @@ export const auth = betterAuth({
   advanced: {
     useSecureCookies: isProduction,
     defaultCookieAttributes: { sameSite: "lax", httpOnly: true },
+    // Better Auth skips origin/callbackURL validation when it detects a test runner. Enforce it
+    // everywhere so tests exercise the same open-redirect and CSRF protection as production.
+    disableOriginCheck: false,
+    disableCSRFCheck: false,
   },
   databaseHooks: {
     session: {

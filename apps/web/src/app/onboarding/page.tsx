@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Brand } from "@/components/brand";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -46,7 +47,10 @@ export default function OnboardingPage() {
   const inviteId = invitationIdFrom(inviteInput);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-muted/40 px-4 py-10">
+    <main className="relative flex min-h-screen flex-col items-center justify-center bg-surface px-4 py-10">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <Brand className="mb-6 text-lg" />
       <div className="w-full max-w-md space-y-4">
         <Card>

@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
+import { ThemeSelector } from "@/components/theme-toggle";
 import { ErrorState, LoadingRows } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,7 +33,7 @@ function AuditLog() {
   if (audit.isPending) return <LoadingRows rows={3} />;
   if (audit.isError) return <ErrorState error={audit.error} onRetry={() => audit.refetch()} />;
   return (
-    <div className="overflow-x-auto">
+    <div tabIndex={0} role="region" aria-label="Audit log table" className="overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
@@ -79,7 +80,16 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Organization details and audit trail." />
+      <PageHeader title="Settings" description="Appearance, organization details and audit trail." />
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Appearance</CardTitle>
+          <CardDescription>Saved in this browser and applied to the website, sign-in and the app.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ThemeSelector />
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>Organization</CardTitle>

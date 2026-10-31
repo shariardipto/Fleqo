@@ -9,9 +9,10 @@ export function uniqueEmail(prefix = "e2e") {
 /** Signs up through the UI and creates an organization via onboarding. */
 export async function signUpWithOrganization(page: Page, orgName: string, email = uniqueEmail()) {
   await page.goto("/sign-up");
-  await page.getByLabel("Name").fill("E2E Operator");
+  await page.getByLabel("Full name").fill("E2E Operator");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(PASSWORD);
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
+  await page.getByLabel("Confirm password").fill(PASSWORD);
   await page.getByRole("button", { name: "Create account" }).click();
 
   await expect(page).toHaveURL(/\/onboarding/);

@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SITE_URL } from "@/lib/site";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -14,8 +15,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: { default: "Fleqo", template: "%s · Fleqo" },
   description: "Integration & workflow automation: new orders to CRM and spreadsheet, traceable and retry-safe.",
+  applicationName: "Fleqo",
+  openGraph: { siteName: "Fleqo", type: "website", locale: "en_US" },
+  twitter: { card: "summary_large_image" },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fbfbfd" },
+    { media: "(prefers-color-scheme: dark)", color: "#14151f" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

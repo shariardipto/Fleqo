@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { useCan } from "@/hooks/use-me";
 import { api, errorMessage } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
@@ -283,13 +283,29 @@ export default function DemoPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs value={kind} onValueChange={(v) => setKind(v as typeof kind)} className="mb-4">
-            <TabsList>
-              <TabsTrigger value="customer">Customers</TabsTrigger>
-              <TabsTrigger value="product">Products</TabsTrigger>
-              <TabsTrigger value="cart">Carts</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {/* A filter, not tabs: one table re-queried per kind, so pressed buttons rather than tab panels. */}
+          <div role="group" aria-label="Record type" className="mb-4 inline-flex rounded-lg bg-muted p-1">
+            {(
+              [
+                ["customer", "Customers"],
+                ["product", "Products"],
+                ["cart", "Carts"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={kind === value}
+                onClick={() => setKind(value)}
+                className={cn(
+                  "rounded-md px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring",
+                  kind === value ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {records.isPending ? (
             <LoadingRows rows={3} />
           ) : records.isError ? (
@@ -297,7 +313,7 @@ export default function DemoPage() {
           ) : records.data.items.length === 0 ? (
             <EmptyState title={`No ${kind}s imported`} description="Run an import above. Carts are only available from DummyJSON." />
           ) : (
-            <div className="overflow-x-auto">
+            <div tabIndex={0} role="region" aria-label="Imported records table" className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

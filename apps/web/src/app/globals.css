@@ -39,6 +39,19 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* Fleqo semantic tokens: text-safe tones + solid tones for filled controls */
+  --color-success: var(--success);
+  --color-success-solid: var(--success-solid);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-brand: var(--brand);
+  --color-brand-2: var(--brand-2);
+  --color-logo-1: var(--logo-1);
+  --color-logo-2: var(--logo-2);
+  --color-logo-3: var(--logo-3);
+  --color-logo-4: var(--logo-4);
+  --color-logo-5: var(--logo-5);
+  --color-surface: var(--surface);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -48,73 +61,117 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * Fleqo design tokens. Every component reads these semantic variables; no component hardcodes a
+ * palette colour. Text-safe tones (success/warning/info/destructive) meet WCAG AA (4.5:1) on the
+ * background and card surfaces of their theme; *-solid tones are for filled controls (3:1).
+ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.985 0.002 265);
+  --foreground: oklch(0.2 0.02 265);
+  --surface: oklch(0.97 0.004 265);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.2 0.02 265);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --popover-foreground: oklch(0.2 0.02 265);
+  --primary: oklch(0.5 0.21 275);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.955 0.008 270);
+  --secondary-foreground: oklch(0.25 0.03 270);
+  --muted: oklch(0.96 0.005 265);
+  --muted-foreground: oklch(0.48 0.02 265);
+  --accent: oklch(0.955 0.012 275);
+  --accent-foreground: oklch(0.25 0.03 270);
+  --destructive: oklch(0.55 0.22 27);
+  --success: oklch(0.5 0.12 158);
+  --success-solid: oklch(0.56 0.14 158);
+  --warning: oklch(0.53 0.13 65);
+  --info: oklch(0.5 0.12 240);
+  --brand: oklch(0.5 0.21 275);
+  --brand-2: oklch(0.58 0.12 215);
+  /* Logo blocks, lightest (top bar) to darkest: teal into the primary indigo. sRGB copies for the
+     static icons live in src/lib/logo.ts. */
+  --logo-1: oklch(0.8 0.1 192);
+  --logo-2: oklch(0.7 0.105 203);
+  --logo-3: oklch(0.61 0.11 220);
+  --logo-4: oklch(0.53 0.13 245);
+  --logo-5: oklch(0.45 0.17 272);
+  --border: oklch(0.91 0.008 265);
+  --input: oklch(0.89 0.01 265);
+  --ring: oklch(0.5 0.21 275 / 55%);
+  --chart-1: oklch(0.5 0.21 275);
+  --chart-2: oklch(0.58 0.12 215);
+  --chart-3: oklch(0.56 0.14 158);
+  --chart-4: oklch(0.7 0.15 65);
+  --chart-5: oklch(0.6 0.2 20);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.975 0.004 265);
+  --sidebar-foreground: oklch(0.2 0.02 265);
+  --sidebar-primary: oklch(0.5 0.21 275);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.94 0.01 270);
+  --sidebar-accent-foreground: oklch(0.2 0.02 265);
+  --sidebar-border: oklch(0.91 0.008 265);
+  --sidebar-ring: oklch(0.5 0.21 275 / 55%);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(0.155 0.008 268);
+  --foreground: oklch(0.965 0.004 265);
+  --surface: oklch(0.18 0.01 268);
+  --card: oklch(0.195 0.011 268);
+  --card-foreground: oklch(0.965 0.004 265);
+  --popover: oklch(0.21 0.012 268);
+  --popover-foreground: oklch(0.965 0.004 265);
+  --primary: oklch(0.74 0.14 278);
+  --primary-foreground: oklch(0.17 0.03 275);
+  --secondary: oklch(0.255 0.014 268);
+  --secondary-foreground: oklch(0.965 0.004 265);
+  --muted: oklch(0.24 0.012 268);
+  --muted-foreground: oklch(0.72 0.015 265);
+  --accent: oklch(0.27 0.025 275);
+  --accent-foreground: oklch(0.965 0.004 265);
+  --destructive: oklch(0.72 0.17 22);
+  --success: oklch(0.79 0.14 160);
+  --success-solid: oklch(0.64 0.15 158);
+  --warning: oklch(0.82 0.13 80);
+  --info: oklch(0.79 0.11 235);
+  --brand: oklch(0.74 0.14 278);
+  --brand-2: oklch(0.78 0.11 212);
+  --logo-1: oklch(0.85 0.1 192);
+  --logo-2: oklch(0.77 0.105 203);
+  --logo-3: oklch(0.69 0.11 222);
+  --logo-4: oklch(0.62 0.12 248);
+  --logo-5: oklch(0.55 0.15 274);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.74 0.14 278 / 60%);
+  --chart-1: oklch(0.74 0.14 278);
+  --chart-2: oklch(0.78 0.11 212);
+  --chart-3: oklch(0.64 0.15 158);
+  --chart-4: oklch(0.82 0.13 80);
+  --chart-5: oklch(0.72 0.17 22);
+  --sidebar: oklch(0.17 0.009 268);
+  --sidebar-foreground: oklch(0.965 0.004 265);
+  --sidebar-primary: oklch(0.74 0.14 278);
+  --sidebar-primary-foreground: oklch(0.17 0.03 275);
+  --sidebar-accent: oklch(0.25 0.018 272);
+  --sidebar-accent-foreground: oklch(0.965 0.004 265);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.74 0.14 278 / 60%);
+}
+
+/* Smooth, uniform theme switch where supported (see components/theme-toggle.tsx). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 220ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
 }
 
 @layer base {
@@ -126,5 +183,83 @@
   }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}
+
+/* Landing page motion helpers. All of them are disabled for prefers-reduced-motion. */
+@keyframes fleqo-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+@keyframes fleqo-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--brand) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px color-mix(in oklch, var(--brand) 0%, transparent);
+  }
+}
+@keyframes fleqo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@utility animate-flow-dash {
+  stroke-dasharray: 6 6;
+  animation: fleqo-dash 1.2s linear infinite;
+}
+@utility animate-pulse-ring {
+  animation: fleqo-pulse-ring 1.6s ease-out infinite;
+}
+@utility animate-float {
+  animation: fleqo-float 6s ease-in-out infinite;
+}
+
+/*
+ * Scroll reveal with CSS scroll-driven animations. No JavaScript, and content is never hidden:
+ * sections only rise slightly as they enter, so crawlers, full-page captures and browsers without
+ * support always see everything.
+ */
+@keyframes fleqo-reveal {
+  from {
+    opacity: 0.85;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media print {
+  .reveal {
+    animation: none !important;
+  }
+}
+@supports (animation-timeline: view()) {
+  .reveal {
+    animation: fleqo-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 70%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-flow-dash,
+  .animate-pulse-ring,
+  .animate-float,
+  .reveal {
+    animation: none !important;
   }
 }

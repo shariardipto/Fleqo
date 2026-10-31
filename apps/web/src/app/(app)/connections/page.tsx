@@ -104,7 +104,7 @@ function RecordsTables() {
             ) : customers.data.pages[0].items.length === 0 ? (
               <EmptyState title="No customers yet" description="The CRM upsert action creates customers here." />
             ) : (
-              <div className="overflow-x-auto">
+              <div tabIndex={0} role="region" aria-label="CRM customers table" className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -143,7 +143,7 @@ function RecordsTables() {
             ) : rows.data.pages[0].items.length === 0 ? (
               <EmptyState title="No rows yet" description="The Sheet append action adds one row per order." />
             ) : (
-              <div className="overflow-x-auto">
+              <div tabIndex={0} role="region" aria-label="Sheet rows table" className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -325,7 +325,7 @@ export default function ConnectionsPage() {
                 Signature: <code className="font-mono">{connections.data.webhook.signature}</code>. Timestamps older than 5 minutes are rejected; the event
                 ID is deduplicated per organization.
               </p>
-              <pre className="mt-2 overflow-x-auto rounded-md bg-muted p-3 text-xs">{`const ts = Math.floor(Date.now() / 1000);
+              <pre tabIndex={0} aria-label="Webhook signing example" className="mt-2 overflow-x-auto rounded-md bg-muted p-3 text-xs">{`const ts = Math.floor(Date.now() / 1000);
 const body = JSON.stringify(event);
 const sig = crypto.createHmac("sha256", SECRET).update(\`\${ts}.\${body}\`).digest("hex");
 await fetch(API_URL + "/api/webhooks/mock-store", { method: "POST", body,

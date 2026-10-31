@@ -1,4 +1,4 @@
-# Fleqo v1.0 — Production Readiness Test Results
+# Fleqo — Production Readiness Test Results (v1.0, plus v1.1 in §9)
 
 All results below come from real runs on 2026-10-31/11-01 on the developer machine (Windows 11, Node 24.22.2, Docker Desktop, PostgreSQL 18, Redis 8). Timings are single local runs under varying load (VS Code processes held about 56 % CPU during some runs). **They are not performance benchmarks.**
 
@@ -115,3 +115,58 @@ Worker log warnings were only the expected ones: 6 × "Job attempt failed" (inje
 | GitHub Actions on GitHub | No authorization to push and `gh` is not installed. Every step was run locally; the workflow is actionlint-clean |
 | Live deployment checks (R6) | Blocked: no cloud credentials or deployment approval. Procedure: [deployment.md §8](./deployment.md#8-production-verification-r6) |
 | Load or performance testing | Out of MVP scope; no throughput claims are made |
+
+---
+
+## 9. v1.1 — landing page, social sign-in, themes (2026-11-01)
+Same machine and isolated environments as above. The E2E API ran with **fake** Google and GitHub client IDs/secrets (`e2e-fake-*`), so the provider buttons render and the flow can be driven up to the provider; no real provider was contacted.
+
+### 9.1 Static checks and audit
+| Command | Result |
+| --- | --- |
+| `npm run lint` (API + web) | exit 0 |
+| `npm run typecheck` (API incl. tests + web) | exit 0 |
+| `npm run build --workspace=apps/web` | exit 0; `/`, `/docs`, `/robots.txt`, `/sitemap.xml`, `/opengraph-image` prerendered as static |
+| `npm audit --omit=dev` | 0 vulnerabilities |
+| Hardcoded palette classes in `apps/web/src` (`grep -E "(red\|emerald\|amber\|…)-[0-9]"`, excluding provider logos) | 0 (the footer's "Powered by" link was moved to theme tokens on the owner's request) |
+| OAuth secrets in the web build/source (`grep` for the fake secrets and `*_CLIENT_SECRET` in `apps/web/.next`, `apps/web/src`) | 0 matches |
+
+### 9.2 API tests (`npm test`)
+**11 files, 66 tests passed** (49.8 s): the 59 v1.0 tests unchanged, plus 7 new.
+
+New file `social-auth.test.ts` (7 tests; Google's token endpoint is stubbed, everything else is real Better Auth + PostgreSQL):
+| Test | Proves |
+| --- | --- |
+| Lists only configured providers | `GET /api/public/auth-providers` → Google + GitHub, no secrets; Apple/X absent |
+| Authorization redirect | `state` + PKCE `S256`; `redirect_uri` = `<BETTER_AUTH_URL>/api/auth/callback/google` |
+| Open redirect + unconfigured provider | external `callbackURL` and `errorCallbackURL` → **403**; `provider: "apple"` (not configured) → rejected with a 4xx |
+| New user | callback creates the user (`emailVerified: true`) and a session → `/onboarding` |
+| Pre-hijacking guard | existing **unverified** password account with the same email → **not linked**, redirect to `/sign-in?error=…`; accounts stay `["credential"]` |
+| Returning user | second sign-in → `/dashboard`, same user, no duplicate |
+| Cancelled / tampered | `error=access_denied` and a forged `state` → error redirect, no session |
+
+### 9.3 E2E (`E2E_BASE_URL=http://localhost:3400 npx playwright test`, production build, CSP enforced)
+**24 passed (1.5 min)** in a single run (desktop 23, Pixel 7 1). The console-error fixture was active for every test.
+
+| Spec | Tests | What it proves |
+| --- | --- | --- |
+| `landing` (**new**) | 9 | Anonymous `/` shows the landing page and reaches sign-in/sign-up; protected routes still redirect to `/sign-in?next=`; signed-in visitors see **Go to Dashboard** and sign-out works; the interactive demo syncs, flags a duplicate and retries after an outage **without any API call** besides the session check; every internal link on `/` and `/docs` resolves (external links must be HTTPS + `noopener`); title, description, canonical, OG image, robots and sitemap; no horizontal overflow at 375 px and 768 px; mobile menu opens, navigates and closes |
+| `theme` (**new**) | 3 | One click flips light ↔ dark (no menu) on `/` and in the app; the choice persists across reloads, `/sign-in` and the app, and is applied at `domcontentloaded` (no flash); first visits follow the emulated OS preference live until a click overrides it; the toggle (Enter/Space) and the Settings selector (arrow keys) work by keyboard |
+| `accessibility` (**new**) | 4 | axe-core WCAG 2.0/2.1 A + AA on `/`, `/docs`, `/sign-in`, `/sign-up`, `/onboarding`, `/dashboard`, `/connections`, `/workflows/new`, `/executions`, `/demo`, `/team`, `/settings` — **light and dark** — 0 serious/critical violations |
+| `social-auth` (**new**) | 3 | Only configured providers (Google, GitHub) on sign-in and sign-up; Google starts an authorization-code + PKCE request to `accounts.google.com` (intercepted, never sent); cancelled consent and an existing-account conflict show clear messages without echoing the URL text |
+| `connections-permissions`, `order-sync`, `organizations`, `mobile` | 5 | v1.0 regression suite unchanged and green with the redesigned auth forms |
+
+### 9.4 Regression
+- The 100-event batch inside `npm test` reproduced the v1.0 counts exactly (100 runs, 30 CRM customers, 100 sheet rows, 25 duplicates, 215 attempts, 0 dead letters).
+- `scripts/reliability-check.sh` was not re-run for v1.1: no API, worker, queue or database code changed except the new read-only `/api/public/auth-providers` route and the Better Auth options.
+
+### 9.5 Visual evidence
+- Product screenshots captured from the real app with synthetic data: `apps/web/public/screens/{dashboard,connections,workflows,executions}-{light,dark}.png` (used on the landing page).
+- Review screenshots of the final build (landing, sign-in/sign-up, mobile, light and dark) are kept outside the repository; they are listed in the v1.1 hand-over.
+
+### 9.6 Not executed
+| Item | Reason |
+| --- | --- |
+| Live Google / GitHub sign-in | No OAuth credentials were provided. Status: **configured but not live-verified** ([social-auth.md §1](./social-auth.md#1-provider-status)) |
+| Apple, X | Blocked on paid/developer accounts and an HTTPS domain; hidden in the UI while unconfigured |
+| Screen-reader walkthrough (NVDA/VoiceOver) | Not available in this environment; covered by axe + keyboard tests only |

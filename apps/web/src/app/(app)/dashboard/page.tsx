@@ -72,7 +72,7 @@ export default function DashboardPage() {
           <CardContent className="space-y-2">
             {steps.map((step) => (
               <Link key={step.label} href={step.href} className="flex items-center gap-3 rounded-lg border p-3 text-sm hover:bg-muted/50">
-                {step.done ? <CheckCircle2 className="size-4 text-emerald-600" /> : <Circle className="size-4 text-muted-foreground" />}
+                {step.done ? <CheckCircle2 className="size-4 text-success" /> : <Circle className="size-4 text-muted-foreground" />}
                 <span className={step.done ? "text-muted-foreground line-through" : ""}>{step.label}</span>
                 <ArrowRight className="ml-auto size-4 text-muted-foreground" />
               </Link>

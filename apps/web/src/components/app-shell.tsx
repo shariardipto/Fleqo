@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useMe } from "@/hooks/use-me";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
@@ -63,7 +64,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
             aria-current={active ? "page" : undefined}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-              active ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              active ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
             )}
           >
             <Icon className="size-4" aria-hidden />
@@ -91,9 +92,11 @@ function OrgSwitcher({ me }: { me: Me }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="h-auto w-full justify-between px-3 py-2" aria-label="Switch organization">
+        <Button variant="outline" className="h-auto w-full justify-between px-3 py-2" data-testid="org-switcher">
+          {/* Accessible name = this prefix + the visible text, so voice-control users can say what they see. */}
+          <span className="sr-only">Switch organization: </span>
           <span className="flex min-w-0 items-center gap-2">
-            <Building2 className="size-4 shrink-0" />
+            <Building2 className="size-4 shrink-0" aria-hidden />
             <span className="min-w-0 text-left">
               <span className="block truncate text-sm font-medium">{active.name}</span>
               <span className="block text-xs capitalize text-muted-foreground">{active.role}</span>
@@ -161,7 +164,12 @@ function SidebarContent({ me, onNavigate }: { me: Me; onNavigate?: () => void })
         <Badge variant="outline" className="w-full justify-center text-[11px] font-normal text-muted-foreground">
           Mock integrations · synthetic data
         </Badge>
-        <UserMenu me={me} />
+        <div className="flex items-center gap-1">
+          <div className="min-w-0 flex-1">
+            <UserMenu me={me} />
+          </div>
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );
@@ -209,7 +217,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 border-r bg-muted/30 lg:block">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 border-r bg-sidebar text-sidebar-foreground lg:block">
         <SidebarContent me={me.data} />
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -226,6 +234,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </SheetContent>
           </Sheet>
           <Brand />
+          <ThemeToggle className="ml-auto" />
         </header>
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>

@@ -19,6 +19,7 @@ import { executionsRouter } from "./modules/executions/executions.routes.ts";
 import { demoRouter } from "./modules/demo/demo.routes.ts";
 import type { FetchJson } from "./modules/demo/import.service.ts";
 import { organizationsRouter } from "./modules/organizations/organizations.routes.ts";
+import { publicRouter } from "./modules/public/public.routes.ts";
 import { webhooksRouter } from "./modules/webhooks/webhooks.routes.ts";
 import { workflowsRouter } from "./modules/workflows/workflows.routes.ts";
 
@@ -107,6 +108,7 @@ export function createApp(deps: AppDeps) {
   );
   app.use("/api", requireTrustedOrigin(env.WEB_ORIGINS));
 
+  app.use("/api", publicRouter());
   app.use("/api", organizationsRouter());
   app.use("/api", connectionsRouter());
   app.use("/api", demoRouter({ runQueue: deps.runQueue, fetchJson: deps.fetchJson }));

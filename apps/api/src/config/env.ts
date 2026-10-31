@@ -32,6 +32,18 @@ const envSchema = z.object({
   RATE_LIMIT_API_PER_MIN: z.coerce.number().int().positive().default(600),
   RATE_LIMIT_WEBHOOK_PER_MIN: z.coerce.number().int().positive().default(1200),
 
+  // Social sign-in (optional). A provider is enabled only when both its ID and secret are set.
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+  GITHUB_CLIENT_ID: z.string().min(1).optional(),
+  GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
+  // Apple: Services ID + a client-secret JWT signed with your Apple key (max 6 months; see docs/social-auth.md).
+  APPLE_CLIENT_ID: z.string().min(1).optional(),
+  APPLE_CLIENT_SECRET: z.string().min(1).optional(),
+  APPLE_APP_BUNDLE_IDENTIFIER: z.string().min(1).optional(),
+  TWITTER_CLIENT_ID: z.string().min(1).optional(),
+  TWITTER_CLIENT_SECRET: z.string().min(1).optional(),
+
   WEBHOOK_TOLERANCE_SECONDS: z.coerce.number().int().positive().default(300),
   WORKFLOW_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(4),
   WORKFLOW_BACKOFF_MS: z.coerce.number().int().min(10).default(2000),
@@ -61,11 +73,23 @@ function productionProblems(data: Env): string[] {
   return problems;
 }
 
+const OAUTH_PAIRS = [
+  ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+  ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
+  ["APPLE_CLIENT_ID", "APPLE_CLIENT_SECRET"],
+  ["TWITTER_CLIENT_ID", "TWITTER_CLIENT_SECRET"],
+] as const;
+
 function loadEnv(): Env {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`).join("\n");
     throw new Error(`Invalid environment configuration:\n${issues}`);
+  }
+  // Half-configured providers are almost always a deployment mistake; fail loudly instead of hiding the button.
+  const halfConfigured = OAUTH_PAIRS.filter(([id, secret]) => Boolean(parsed.data[id]) !== Boolean(parsed.data[secret]));
+  if (halfConfigured.length > 0) {
+    throw new Error(`Incomplete OAuth configuration: set both ${halfConfigured.map((pair) => pair.join(" and ")).join("; ")}`);
   }
   if (parsed.data.NODE_ENV === "production") {
     const problems = productionProblems(parsed.data);

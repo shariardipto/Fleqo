@@ -20,10 +20,10 @@ import type { ExecutionDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function Json({ value }: { value: unknown }) {
-  return <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(value, null, 2)}</pre>;
+  return <pre tabIndex={0} aria-label="JSON data" className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(value, null, 2)}</pre>;
 }
 
-const levelStyle = { info: "text-muted-foreground", warn: "text-amber-700 dark:text-amber-300", error: "text-red-700 dark:text-red-300" };
+const levelStyle = { info: "text-muted-foreground", warn: "text-warning", error: "text-destructive" };
 
 export default function ExecutionDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -110,7 +110,7 @@ export default function ExecutionDetailPage() {
                 <StatusBadge status={action.status} />
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
-                {action.lastError && <p className="rounded-md bg-red-50 p-2 text-red-800 dark:bg-red-950 dark:text-red-200">{action.lastError}</p>}
+                {action.lastError && <p className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-destructive">{action.lastError}</p>}
                 {action.status === "queued" && action.attempts === 0 && run.status === "failed" && (
                   <p className="text-muted-foreground">Not executed because an earlier action failed.</p>
                 )}

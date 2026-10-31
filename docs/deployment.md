@@ -45,12 +45,13 @@ External webhook senders ──HTTPS──▶ Railway "fleqo-api" /api/webhooks 
    - `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`
    - `TRUST_PROXY=2` (Vercel proxy + Railway edge; verify per §8)
    - Do **not** set `NODE_TLS_REJECT_UNAUTHORIZED` (the API refuses to start with `0`).
+   - Optional social sign-in: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`, `APPLE_CLIENT_ID`/`APPLE_CLIENT_SECRET` (+ `APPLE_APP_BUNDLE_IDENTIFIER`), `TWITTER_CLIENT_ID`/`TWITTER_CLIENT_SECRET`. Set **both** values of a pair or neither (a half-configured provider stops startup). Register the redirect URI **`https://<your-web-domain>/api/auth/callback/<provider>`** (the web origin, not the Railway domain). Leave them unset to offer email/password only. Setup per provider: [social-auth.md](./social-auth.md).
 4. Networking → generate a public domain (e.g. `fleqo-api.up.railway.app`). It is needed by Vercel's rewrite and by external webhook senders.
 
 ### 3.3 Worker service `fleqo-worker`
 1. New service → same repository.
 2. Config-as-code file path: `deploy/railway/worker.json` (start `node dist/worker.js`, restart policy ALWAYS, draining 30 s so in-flight jobs finish).
-3. Variables: [`deploy/env/worker.production.env.example`](../deploy/env/worker.production.env.example). `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `BETTER_AUTH_URL` and `WEB_ORIGINS` must **equal** the API's values.
+3. Variables: [`deploy/env/worker.production.env.example`](../deploy/env/worker.production.env.example). `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `BETTER_AUTH_URL` and `WEB_ORIGINS` must **equal** the API's values. The OAuth variables are **not** needed on the worker; leave them unset there so the secrets live in one service only.
 4. No public domain. Optional health check: set `PORT=8080`, `WORKER_HEALTH_PORT=8080` and health check path `/health`.
 5. Scaling: more worker replicas are safe (run leases + action states guarantee single execution). `WORKER_CONCURRENCY` (default 5) is per replica.
 
@@ -64,9 +65,9 @@ External webhook senders ──HTTPS──▶ Railway "fleqo-api" /api/webhooks 
 ## 4. Vercel (web)
 1. Add New Project → import the repository.
 2. **Root Directory:** `apps/web`. Framework preset: **Next.js**. Keep the default install command; Vercel detects the npm workspace at the repository root. Build command `next build`.
-3. Environment variable (Production and Preview): **`API_URL=https://<railway-api-domain>`**. It is read at **build** time by `next.config.ts` rewrites, so **redeploy after changing it**.
+3. Environment variables (Production and Preview): **`API_URL=https://<railway-api-domain>`** and **`NEXT_PUBLIC_SITE_URL=https://<your-web-domain>`** (canonical, Open Graph and sitemap URLs of the public landing page). Both are read at **build** time (`next.config.ts` rewrites, metadata), so **redeploy after changing them**. No OAuth secret ever goes into Vercel.
 4. Deploy. Production builds send CSP, HSTS, Permissions-Policy, X-Frame-Options and nosniff headers, and no `X-Powered-By`.
-5. Custom domain (optional): add it in Vercel, then update `BETTER_AUTH_URL` and `WEB_ORIGINS` on **both** Railway services and redeploy them. DNS changes are yours to make.
+5. Custom domain (optional): add it in Vercel, then update `BETTER_AUTH_URL` and `WEB_ORIGINS` on **both** Railway services and redeploy them, update `NEXT_PUBLIC_SITE_URL` on Vercel, and add the new redirect URIs at each OAuth provider. DNS changes are yours to make.
 6. Preview deployments use different origins; they will fail Better Auth's origin checks unless you add them to `WEB_ORIGINS`. For previews, prefer a separate staging API.
 
 ## 5. Health checks, logging and basic observability
@@ -111,7 +112,7 @@ External webhook senders ──HTTPS──▶ Railway "fleqo-api" /api/webhooks 
 ## 8. Production verification (R6)
 Run after an approved deployment. Do not call the deployment complete until every item passes.
 
-1. `https://<vercel-domain>/sign-in` loads over HTTPS. Response headers include CSP, HSTS and X-Frame-Options; no `X-Powered-By`.
+1. `https://<vercel-domain>/` (landing page) and `/sign-in` load over HTTPS. Response headers include CSP, HSTS and X-Frame-Options; no `X-Powered-By`. View source: the canonical and `og:url` use `NEXT_PUBLIC_SITE_URL`; `/robots.txt` and `/sitemap.xml` point to the same domain.
 2. `https://<api-domain>/api/health` → 200 and `/api/ready` → `{"database":"connected","redis":"connected"}`.
 3. Railway pre-deploy log shows `prisma migrate deploy` succeeded.
 4. **Smoke test** from your machine: `npm run smoke -- --base-url https://<vercel-domain>` → 13/13. It creates a throwaway tenant, sends signed events, waits for the worker, and checks duplicates and signature rejection.
@@ -119,8 +120,9 @@ Run after an approved deployment. Do not call the deployment complete until ever
 6. **E2E against production** (creates throwaway users): `E2E_BASE_URL=https://<vercel-domain> npm run test:e2e`. It covers registration and auth, roles, invite links, import, workflow, retries, dead letter and manual retry, execution logs, mobile layout and **no browser console errors**.
 7. **Proxy check:** in the API logs for your own request, `clientIp` must equal your public IP (not a Vercel or Railway address). If it shows a proxy address, adjust `TRUST_PROXY` (1 or 3) and redeploy.
 8. **Cookie check:** in the browser devtools, the session cookie is `__Secure-better-auth.session_token`, `HttpOnly`, `Secure`, `SameSite=Lax`, on the Vercel domain.
-9. Optional: run `npm run smoke` with `--base-url https://<api-domain> --origin https://<vercel-domain>` to exercise the public API domain directly.
-10. Record the results in `docs/production-test-results.md` (new "Live" section) with the deployment IDs.
+9. **Social sign-in** (only for providers you configured): `/sign-in` shows exactly those buttons; then run the live checklist in [social-auth.md §6](./social-auth.md#6-live-verification-checklist-needs-real-credentials) and mark a provider as live-verified only after it passes.
+10. Optional: run `npm run smoke` with `--base-url https://<api-domain> --origin https://<vercel-domain>` to exercise the public API domain directly.
+11. Record the results in `docs/production-test-results.md` (new "Live" section) with the deployment IDs.
 
 ## 9. Troubleshooting
 | Symptom | Likely cause |
@@ -131,3 +133,6 @@ Run after an approved deployment. Do not call the deployment complete until ever
 | Runs stay `queued` | Worker not running or on a different `QUEUE_PREFIX`/`REDIS_URL` from the API |
 | All users rate-limited together | `TRUST_PROXY` too low (every request looks like it comes from the proxy IP) |
 | Web calls go to localhost | `API_URL` was not set at Vercel **build** time — set it and redeploy |
+| Provider shows `redirect_uri_mismatch` | The provider's registered redirect URI is not exactly `<BETTER_AUTH_URL>/api/auth/callback/<provider>` |
+| Social button missing | The provider's variables were set on the worker or Vercel instead of the API service, or the API was not redeployed after adding them |
+| Canonical / OG URLs show `localhost` | `NEXT_PUBLIC_SITE_URL` was not set at Vercel build time |

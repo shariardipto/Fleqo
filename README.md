@@ -4,6 +4,8 @@
 
 > **MVP scope.** The store, CRM and spreadsheet are **PostgreSQL-backed mock integrations**, not real Shopify / CRM / Google Sheets connections. Demo inputs come from the public [DummyJSON](https://dummyjson.com/docs) API or an offline synthetic generator, and every generated order is labelled synthetic. No paid API is required.
 
+> **v1.1 (2026-11-01):** public landing page with an in-browser product demo, `/docs`, redesigned sign-in/sign-up with optional Google, GitHub, Apple and X sign-in (configured per environment; **not live-verified** without provider credentials), and a persistent Light / Dark / System theme across the whole app. Verified locally: lint, typecheck, 66 API tests, 24 browser tests (including axe WCAG AA in light and dark). See [docs/landing-page.md](docs/landing-page.md), [docs/social-auth.md](docs/social-auth.md) and [docs/theme-architecture.md](docs/theme-architecture.md).
+>
 > **Release status (v1.0, 2026-11-01): release-ready locally, not deployed.** Everything locally executable is verified (lint, typecheck, 59 API tests, 100-event batch, 5 browser tests, an 8-scenario reliability script, and the production Docker image with smoke tests). Live deployment is waiting for cloud credentials and approval. See [docs/release-audit.md](docs/release-audit.md), [docs/security-audit.md](docs/security-audit.md), [docs/production-test-results.md](docs/production-test-results.md) and [docs/deployment.md](docs/deployment.md).
 
 ```
@@ -25,12 +27,14 @@ Mock Store ──signed order.created──▶ Express API ──outbox──▶
 - [Repository layout](#repository-layout)
 
 ## Features
-- **Accounts and organizations** — Better Auth email/password; organizations with **Owner / Admin / Member** roles (Better Auth Organization plugin). Membership and role are re-checked server-side on every request. Teammates join through **invite links**; invitations are never discoverable by email.
+- **Public website** — landing page at `/` (hero, interactive in-browser demo, features, how it works, integrations, real product screenshots, security), plus `/docs`. Signed-in visitors get **Go to Dashboard**.
+- **Accounts and organizations** — Better Auth email/password, plus optional Google / GitHub / Apple / X sign-in (shown only when configured, with safe account linking); organizations with **Owner / Admin / Member** roles (Better Auth Organization plugin). Membership and role are re-checked server-side on every request. Teammates join through **invite links**; invitations are never discoverable by email.
 - **Connections** — `mock_store`, `mock_crm`, `mock_sheet` per organization. The store's webhook signing secret is AES-256-GCM encrypted at rest and shown once.
 - **Guided workflow builder** — `mock_store.order.created` → `mock_crm.upsert_customer` → `mock_sheet.append_order`, with type-checked field mapping, enable/disable and archive.
 - **Signed webhook receiver** — HMAC-SHA256 over the raw body, 5-minute replay window, Zod validation, tenant resolved only from the verified connection.
 - **Reliable execution** — transactional outbox, BullMQ worker, run leases, exactly-once commit of each action's side effect, exponential-backoff retries, dead-letter records and authorized manual retry that skips completed actions.
 - **Demo data** — DummyJSON import (users, products, carts) with provenance and licence notes, or a deterministic offline generator; an order simulator with fault injection and duplicate re-send.
+- **Themes** — Light, Dark and System everywhere (landing, auth, app), persisted per browser, with no flash on load and semantic design tokens that meet WCAG AA in both themes.
 - **Operator UI** — dashboard, connections (with destination records), workflows, executions (filters, live refresh, per-action input/output/errors/logs), demo data, team and settings (audit log). Responsive, accessible, with loading / error / empty states.
 
 ## Architecture
@@ -86,7 +90,7 @@ npm run dev:web        # http://localhost:3000  (Next.js; proxies /api → :4000
 
 The Prisma client (`apps/api/src/generated`) is not committed: `dev`, `dev:worker`, `typecheck`, `test`, `db:seed` and `build` regenerate it automatically (`npm run db:generate` does it on demand).
 
-Open http://localhost:3000, create an account and an organization, then follow the dashboard checklist: **Connections → New workflow → Demo data (Import, Send signed events) → Executions**.
+Open http://localhost:3000 for the landing page, then **Get Started** to create an account and an organization, then follow the dashboard checklist: **Connections → New workflow → Demo data (Import, Send signed events) → Executions**.
 
 Health endpoints: `GET /api/health` (liveness), `GET /api/db-health`, `GET /api/ready` (PostgreSQL + Redis). The worker exposes `GET /health` when `WORKER_HEALTH_PORT` is set.
 
@@ -107,8 +111,8 @@ All numbers below come from runs on 2026-10-31/11-01 on a Windows 11 developer m
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| API unit + integration + security | `npm test` | **10 files, 59 tests passed** (62.1 s) |
-| E2E (Chromium, desktop + Pixel 7, CSP on, console-error guard) | `npm run test:e2e` | **5 passed** (1.0 min) |
+| API unit + integration + security + social sign-in | `npm test` | **11 files, 66 tests passed** (49.8 s) |
+| E2E (Chromium, desktop + Pixel 7, CSP on, console-error guard): app flows, landing, theme, social sign-in, axe WCAG AA in both themes | `npm run test:e2e` | **24 passed** (1.5 min) |
 | Process-level reliability (8 scenarios) | `npm run test:reliability` | **all passed** — 32/32 runs, 0 duplicate rows, CRM never repeated, 0 dead letters |
 | Smoke vs production Docker image (725 MB) | `npm run smoke -- --base-url http://localhost:4700 --origin http://localhost:3000` | **13/13** |
 | Typecheck / lint / build / `npm audit` | | all exit 0; 0 vulnerabilities |
@@ -150,7 +154,9 @@ All numbers below come from runs on 2026-10-31/11-01 on a Windows 11 developer m
 | `WORKFLOW_MAX_ATTEMPTS`, `WORKFLOW_BACKOFF_MS`, `WORKER_CONCURRENCY`, `DISPATCH_POLL_MS`, `RUN_LEASE_MS` | Execution tuning |
 | `WORKER_HEALTH_PORT`, `FLEQO_SERVICE` | Optional worker `/health` port; service label in logs |
 
-`apps/web` — `API_URL`: where the Next.js rewrite proxy sends `/api/*` (default `http://localhost:4000`; read at build time).
+`apps/web` — `API_URL`: where the Next.js rewrite proxy sends `/api/*` (default `http://localhost:4000`; read at build time). `NEXT_PUBLIC_SITE_URL`: public origin for canonical/Open Graph URLs and the sitemap.
+
+Social sign-in (API, optional): `GOOGLE_CLIENT_ID`/`_SECRET`, `GITHUB_CLIENT_ID`/`_SECRET`, `APPLE_CLIENT_ID`/`_SECRET` (+ `APPLE_APP_BUNDLE_IDENTIFIER`), `TWITTER_CLIENT_ID`/`_SECRET`. A provider is enabled only when both values are set; redirect URI `<BETTER_AUTH_URL>/api/auth/callback/<provider>`. Setup: [docs/social-auth.md](docs/social-auth.md).
 
 With `NODE_ENV=production` the API and worker **refuse to start** if `BETTER_AUTH_URL`/`WEB_ORIGINS` are not HTTPS (localhost excepted) or if `NODE_TLS_REJECT_UNAUTHORIZED=0` is set. Production templates: [`deploy/env/`](deploy/env/).
 
@@ -195,6 +201,7 @@ Secrets are generated per run. *The workflow is actionlint-clean and every step 
 - Secrets: Better Auth secret and encryption key only in environment variables; webhook secrets AES-256-GCM encrypted and never returned after creation; pino redacts cookies, authorization and signature headers. Production refuses to start with TLS verification disabled.
 - Browser: same-origin API, `SameSite=Lax` HTTP-only cookies (`Secure` in production), CORS restricted to `WEB_ORIGINS` (no wildcard), Better Auth origin checks **plus** a Fleqo origin check on cookie-authenticated mutations, `Cache-Control: no-store` on API responses, Helmet on the API, and CSP/HSTS/Permissions-Policy on the production web. There is a general API rate limit, and Better Auth's own auth rate limit applies in production.
 - Invitations: accepted only through the invite link (random ID) by the invited address; never listed by email, because email addresses are not verified in the MVP.
+- Social sign-in: OAuth `state` + PKCE, callback URLs restricted to trusted origins (enforced even in tests), secrets server-side only, and **no implicit linking into unverified local accounts** (prevents account pre-hijacking).
 - Full review against OWASP Top 10, with residual risks: [docs/security-audit.md](docs/security-audit.md).
 - Outbound requests go only to fixed DummyJSON endpoints; no user-supplied URL is ever fetched.
 - Errors are sanitized and machine-readable: `{ "error": { "code", "message", "details?", "requestId" } }`, with `X-Request-Id` on every response.
@@ -202,7 +209,9 @@ Secrets are generated per run. *The workflow is actionlint-clean and every step 
 ## Known limitations
 - **Not deployed** (no credentials or approval provided) — see [Deployment](#deployment).
 - Mock integrations only: no real Shopify, CRM or Google Sheets OAuth (explicitly out of MVP scope).
-- Invitations are not emailed and email addresses are not verified (no email provider in the MVP). Inviters share the invite link themselves.
+- Invitations are not emailed and email addresses are not verified (no email provider in the MVP). Inviters share the invite link themselves. A verification design is in [docs/social-auth.md §7](docs/social-auth.md#7-email-verification--proposal).
+- Social providers are implemented but **not live-verified**: no Google/GitHub/Apple/X credentials were available. Apple requires a paid developer account and an HTTPS domain; X requires an X developer app with email permission.
+- No password reset yet (needs an email provider); the "Forgot password?" link is intentionally absent.
 - One connection per mock provider per organization; one trigger type and two action types.
 - Rate limits are in-memory per API instance; use a Redis store before running several API replicas.
 - The API/worker image is 725 MB, mostly the Prisma CLI kept for the release-step migration; a separate migrator image would shrink it further.
@@ -230,6 +239,6 @@ deploy/railway/           api.json, worker.json (Railway config-as-code)
 deploy/env/               production environment templates (placeholders only)
 scripts/                  reliability-check.sh (process-level fault injection)
 docs/                     requirements, architecture, ERD, API/UI specs, release & security audits,
-                          production test results, deployment guide, progress log
+                          production test results, deployment guide, landing page, theme, social auth, progress log
 compose.yaml              PostgreSQL 18 + Redis 8 for local development
 ```

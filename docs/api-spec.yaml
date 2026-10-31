@@ -352,6 +352,21 @@ paths:
       parameters: [{ name: path, in: path, required: true, schema: { type: string } }]
       responses: { "200": { description: Better Auth response } }
 
+  /api/public/auth-providers:
+    get:
+      tags: [Auth]
+      security: []
+      summary: Sign-in methods offered by this deployment
+      description: |
+        Lists social providers whose client ID **and** secret are configured on the server, so the UI only
+        shows working buttons. Secrets are never returned. Social sign-in itself uses Better Auth:
+        `POST /api/auth/sign-in/social` → provider → `GET|POST /api/auth/callback/{provider}`.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              example: { emailPassword: true, providers: [{ id: google, name: Google }, { id: github, name: GitHub }] }
   /api/me:
     get:
       tags: [Organizations]

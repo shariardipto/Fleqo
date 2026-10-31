@@ -78,7 +78,7 @@ test("members join through an invite link and see a read-only view instead of gr
   const invitee = uniqueEmail("member");
   await page.getByRole("link", { name: "Team" }).click();
   await page.getByLabel("Email").fill(invitee);
-  await page.getByRole("button", { name: "Invite" }).click();
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
   const link = await page.getByLabel("Invite link").inputValue();
   expect(link).toMatch(/\/invite\/[\w-]+$/);
 
@@ -96,9 +96,10 @@ test("members join through an invite link and see a read-only view instead of gr
   await member.goto(link);
   await member.getByRole("link", { name: "Create account" }).click();
   await expect(member).toHaveURL(/\/sign-up\?next=/);
-  await member.getByLabel("Name").fill("New Member");
+  await member.getByLabel("Full name").fill("New Member");
   await member.getByLabel("Email").fill(invitee);
-  await member.getByLabel("Password").fill(PASSWORD);
+  await member.getByLabel("Password", { exact: true }).fill(PASSWORD);
+  await member.getByLabel("Confirm password").fill(PASSWORD);
   await member.getByRole("button", { name: "Create account" }).click();
   await expect(member).toHaveURL(/\/invite\//);
   await expect(member.getByTestId("invitation-details")).toContainText("Invite Link Co");

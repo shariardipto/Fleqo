@@ -96,7 +96,7 @@ export default function ExecutionsPage() {
         <Card>
           <CardContent>
             <p className="mb-2 text-xs text-muted-foreground">{executions.data.pages[0].total} total</p>
-            <div className="overflow-x-auto">
+            <div tabIndex={0} role="region" aria-label="Executions table" className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

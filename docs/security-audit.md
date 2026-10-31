@@ -1,4 +1,4 @@
-# Fleqo v1.0 — Security Audit
+# Fleqo v1.0 — Security Audit (+ v1.1 addendum, §8)
 
 **Date:** 2026-11-01 · **Reviewer role:** release security review · **Basis:** OWASP Top 10 (2021) and OWASP ASVS-style control checks, applied to the code in this repository.
 Every "Verified" item names the automated test or command that proves it ([production-test-results.md](./production-test-results.md)).
@@ -96,3 +96,24 @@ No dependency upgrades were needed; no breaking upgrades were applied.
 | `unknown_connection` vs `invalid_signature` responses reveal whether a public connection ID exists. | Info | Accepted: public IDs identify, never authorize (96-bit random) |
 | No antivirus or file upload surface; no user-provided URLs. | — | — |
 | The live configuration (TLS, `TRUST_PROXY`, cookie domain, headers on Vercel) is not yet verified. | — | R6 checklist in deployment.md §8 |
+| Social providers (v1.1) are tested offline only; no sign-in against a real Google/GitHub/Apple/X app has been done. | Low | Run the live checklist in [social-auth.md §6](./social-auth.md#6-live-verification-checklist-needs-real-credentials) per provider before announcing it |
+| Apple's client secret is a JWT that expires after at most 6 months; an expired one breaks Apple sign-in. | Low (only if Apple is enabled) | Calendar reminder; regenerate before expiry |
+
+## 8. v1.1 review — social sign-in and public website (2026-11-01)
+Scope: the new OAuth sign-in (`apps/api/src/lib/social-providers.ts`, `lib/auth.ts`, `modules/public`), the redesigned auth pages, the public landing page and docs, and the theme system.
+
+| Control | Implementation | Status / evidence |
+| --- | --- | --- |
+| OAuth client secrets | Read from the API environment only (`env.ts`). The browser receives only `{id, name}` from `GET /api/public/auth-providers`. A provider with only one of ID/secret stops startup (`Incomplete OAuth configuration`). `grep` of the web build output for the fake test secrets: no matches | Verified — `social-auth.test.ts`; env validation |
+| Login CSRF / code injection | OAuth `state` stored server-side + PKCE S256 (Better Auth). Tampered or missing state → `/sign-in?error=state_mismatch`-style redirect, no session | Verified — `social-auth.test.ts` (tampered state, cancelled consent) |
+| Open redirects | `callbackURL`, `newUserCallbackURL`, `errorCallbackURL` validated against `trustedOrigins`. Better Auth skips this check when it detects a test environment, so Fleqo sets `advanced.disableOriginCheck: false` (and `disableCSRFCheck: false`) explicitly: the check now runs in tests too. The web form only passes same-site relative `next` values (`safeNext`) | Verified — external `callbackURL` → **403** (`social-auth.test.ts`) |
+| Account pre-hijacking / takeover by linking | `accountLinking: { requireLocalEmailVerified: true, trustedProviders: [], allowDifferentEmails: false }`. An attacker who registers victim@example.com with a password cannot later receive the victim's Google identity; the social sign-in is refused with "account not linked" and the existing account keeps only its `credential` row | Verified — `social-auth.test.ts` (unverified local account, provider email verified → not linked) |
+| Duplicate accounts | Returning social users are matched on `(providerId, accountId)` → same user, same session flow, no duplicate | Verified — `social-auth.test.ts` |
+| Provider email trust | Only provider-verified emails are marked `emailVerified` (GitHub verified primary; X `confirmed_email`; Google/Apple `email_verified`) | Better Auth behaviour; Google path verified by test |
+| Apple form-POST callback | `https://appleid.apple.com` is trusted only while Apple is configured | By review |
+| Error display | OAuth error codes map to fixed messages; unknown codes show a generic message, so query-string text is never rendered | By review; E2E cancelled-flow test |
+| Public endpoint | `/api/public/auth-providers` returns no user or tenant data, is rate-limited by the API limiter and is `no-store` | By review |
+| Public landing and docs | Static pages; the interactive demo runs entirely in the browser (asserted: no API calls besides the session check) and uses a published demo secret that is never used by the server. External links use `rel="noopener noreferrer"` (E2E link checker) | Verified — `landing.spec.ts` |
+| Headers | Production CSP/HSTS/Permissions-Policy unchanged and applied to the new routes; no new third-party origins (fonts self-hosted, screenshots local) | Verified — production build with CSP; console guard reports no CSP violations |
+
+No new dependencies at runtime (`@axe-core/playwright` is a dev dependency). `npm audit --omit=dev` → **0** vulnerabilities after v1.1.
