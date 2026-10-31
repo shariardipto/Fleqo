@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Building2,
@@ -21,7 +21,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Brand } from "@/components/brand";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -37,6 +36,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useMe } from "@/hooks/use-me";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
+import { APP_VERSION } from "@/lib/site";
 import type { Me } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -154,6 +154,46 @@ function UserMenu({ me }: { me: Me }) {
   );
 }
 
+type Readiness = { database: "connected" | "unavailable"; redis: "connected" | "unavailable" };
+
+// /api/ready answers 503 with the same body when a dependency is down, so read the body either way.
+async function fetchReadiness({ signal }: { signal: AbortSignal }): Promise<Readiness> {
+  const response = await fetch("/api/ready", { signal, cache: "no-store" });
+  const body = await response.json().catch(() => null);
+  if (!body?.database || !body?.redis) throw new Error(`Readiness check failed (${response.status})`);
+  return body;
+}
+
+const STATUS = {
+  checking: { dot: "bg-muted-foreground/50", label: "Checking status…" },
+  ok: { dot: "bg-success-solid", label: "All systems operational" },
+  queue: { dot: "bg-warning", label: "Queue unavailable" },
+  database: { dot: "bg-destructive", label: "Database unavailable" },
+  down: { dot: "bg-destructive", label: "API unreachable" },
+} as const;
+
+/** Live API, database and queue health, the release and the demo-data notice. */
+function SystemStatus() {
+  const { data, isError } = useQuery({ queryKey: ["system-status"], queryFn: fetchReadiness, refetchInterval: 60_000, retry: false });
+  const state = isError ? "down" : !data ? "checking" : data.database !== "connected" ? "database" : data.redis !== "connected" ? "queue" : "ok";
+  const { dot, label } = STATUS[state];
+
+  return (
+    <div className="rounded-lg border px-3 py-2 text-[11px] leading-snug" role="status" data-testid="system-status" data-state={state}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5 font-medium">
+          <span className={cn("size-1.5 shrink-0 rounded-full", dot)} aria-hidden />
+          <span className="truncate">{label}</span>
+        </span>
+        <span className="shrink-0 font-mono text-muted-foreground">v{APP_VERSION}</span>
+      </div>
+      <p className="mt-0.5 text-muted-foreground">
+        {state === "queue" ? "Events are kept and run later" : "Mock integrations · synthetic data"}
+      </p>
+    </div>
+  );
+}
+
 function SidebarContent({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col gap-4 p-4">
@@ -161,9 +201,7 @@ function SidebarContent({ me, onNavigate }: { me: Me; onNavigate?: () => void })
       <OrgSwitcher me={me} />
       <NavLinks onNavigate={onNavigate} />
       <div className="mt-auto space-y-2">
-        <Badge variant="outline" className="w-full justify-center text-[11px] font-normal text-muted-foreground">
-          Mock integrations · synthetic data
-        </Badge>
+        <SystemStatus />
         <div className="flex items-center gap-1">
           <div className="min-w-0 flex-1">
             <UserMenu me={me} />

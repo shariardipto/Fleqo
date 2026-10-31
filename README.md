@@ -4,7 +4,7 @@
 
 > **MVP scope.** The store, CRM and spreadsheet are **PostgreSQL-backed mock integrations**, not real Shopify / CRM / Google Sheets connections. Demo inputs come from the public [DummyJSON](https://dummyjson.com/docs) API or an offline synthetic generator, and every generated order is labelled synthetic. No paid API is required.
 
-> **v1.1 (2026-11-01):** public landing page with an in-browser product demo, `/docs`, redesigned sign-in/sign-up with optional Google, GitHub, Apple and X sign-in (configured per environment; **not live-verified** without provider credentials), and a persistent Light / Dark / System theme across the whole app. Verified locally: lint, typecheck, 66 API tests, 24 browser tests (including axe WCAG AA in light and dark). See [docs/landing-page.md](docs/landing-page.md), [docs/social-auth.md](docs/social-auth.md) and [docs/theme-architecture.md](docs/theme-architecture.md).
+> **v1.1 (2026-11-01):** public landing page with an in-browser product demo, `/docs`, redesigned sign-in/sign-up with optional Google, GitHub, Apple and X sign-in (configured per environment; **not live-verified** without provider credentials), and a one-click light/dark theme across the whole app, a theme-matched logo and favicon, and a live system status card in the app sidebar. Verified locally: lint, typecheck, 66 API tests, 25 browser tests (including axe WCAG AA in light and dark). See [docs/landing-page.md](docs/landing-page.md), [docs/social-auth.md](docs/social-auth.md) and [docs/theme-architecture.md](docs/theme-architecture.md).
 >
 > **Release status (v1.0, 2026-11-01): release-ready locally, not deployed.** Everything locally executable is verified (lint, typecheck, 59 API tests, 100-event batch, 5 browser tests, an 8-scenario reliability script, and the production Docker image with smoke tests). Live deployment is waiting for cloud credentials and approval. See [docs/release-audit.md](docs/release-audit.md), [docs/security-audit.md](docs/security-audit.md), [docs/production-test-results.md](docs/production-test-results.md) and [docs/deployment.md](docs/deployment.md).
 
@@ -112,7 +112,7 @@ All numbers below come from runs on 2026-10-31/11-01 on a Windows 11 developer m
 | Suite | Command | Result |
 | --- | --- | --- |
 | API unit + integration + security + social sign-in | `npm test` | **11 files, 66 tests passed** (49.8 s) |
-| E2E (Chromium, desktop + Pixel 7, CSP on, console-error guard): app flows, landing, theme, social sign-in, axe WCAG AA in both themes | `npm run test:e2e` | **24 passed** (1.5 min) |
+| E2E (Chromium, desktop + Pixel 7, CSP on, console-error guard): app flows, landing, theme, social sign-in, axe WCAG AA in both themes | `npm run test:e2e` | **25 passed** (1.4 min) |
 | Process-level reliability (8 scenarios) | `npm run test:reliability` | **all passed** — 32/32 runs, 0 duplicate rows, CRM never repeated, 0 dead letters |
 | Smoke vs production Docker image (725 MB) | `npm run smoke -- --base-url http://localhost:4700 --origin http://localhost:3000` | **13/13** |
 | Typecheck / lint / build / `npm audit` | | all exit 0; 0 vulnerabilities |
