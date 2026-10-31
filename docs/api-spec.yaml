@@ -1,0 +1,694 @@
+openapi: 3.1.0
+info:
+  title: Fleqo API
+  version: 0.1.0
+  description: |
+    Express API for the Fleqo MVP. All routes are under `/api`.
+
+    **Authentication.** Better Auth session cookie (set by `/api/auth/*`). Browsers reach the API through the
+    web app's same-origin `/api` proxy. State-changing requests must carry a trusted `Origin`.
+
+    **Tenancy.** Organization-scoped routes act on the session's *active organization*. Membership and role
+    are re-verified on every request; resources from other organizations respond `404`.
+
+    **Errors.** Every error uses the `Error` schema. `X-Request-Id` is returned on every response.
+
+    **Roles.** owner / admin: manage connections, workflows, imports, retries, audit, invitations.
+    member: read connections/workflows/executions, run the simulator.
+servers:
+  - url: http://localhost:4000
+    description: Local API (direct)
+  - url: http://localhost:3000
+    description: Local web app (proxies /api)
+
+tags:
+  - name: Health
+  - name: Auth
+  - name: Organizations
+  - name: Team
+  - name: Connections
+  - name: Workflows
+  - name: Webhooks
+  - name: Demo
+  - name: Executions
+  - name: Dashboard
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: better-auth.session_token
+      description: Better Auth session cookie (`__Secure-` prefixed in production).
+    webhookSignature:
+      type: apiKey
+      in: header
+      name: X-Fleqo-Signature
+      description: hex(HMAC-SHA256(secret, `${X-Fleqo-Timestamp}.${rawBody}`)); see the webhook operation.
+
+  responses:
+    Unauthenticated:
+      description: No valid session
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Forbidden:
+      description: Role lacks permission, or not a member
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: Resource not found in the active organization
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ValidationFailed:
+      description: Request validation failed
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: State conflict (duplicate, wrong status, missing connection, no active organization)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, maxLength: 64, pattern: "^[\\w-]+$" }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from `nextCursor` of the previous page
+      schema: { type: string }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+              enum:
+                [bad_request, validation_failed, unauthenticated, forbidden, no_active_organization, not_found, conflict,
+                 payload_too_large, rate_limited, invalid_signature, stale_timestamp, unknown_connection,
+                 service_unavailable, internal_error]
+            message: { type: string }
+            details:
+              type: array
+              items: { type: object, properties: { path: { type: string }, message: { type: string } } }
+            requestId: { type: string }
+      example:
+        error:
+          code: validation_failed
+          message: "Invalid mapping for Mock CRM: upsert customer"
+          details: [{ path: mock_crm.upsert_customer.email, message: "Order total (minor units) (integer) cannot fill a email field" }]
+          requestId: 3dc97650-1066-41ed-b093-dcf0464485e8
+
+    RunStatus: { type: string, enum: [queued, running, retrying, succeeded, failed] }
+    Provider: { type: string, enum: [mock_store, mock_crm, mock_sheet] }
+    ActionKey: { type: string, enum: [mock_crm.upsert_customer, mock_sheet.append_order] }
+
+    OrderCreatedEvent:
+      description: Fleqo-generated event contract (not a real provider payload). Amounts are integer minor units.
+      type: object
+      required: [eventId, type, occurredAt, data]
+      properties:
+        eventId: { type: string, maxLength: 128, pattern: "^[\\w.:-]+$" }
+        type: { const: order.created }
+        occurredAt: { type: string, format: date-time }
+        synthetic: { type: boolean, default: false }
+        data:
+          type: object
+          required: [order, customer]
+          properties:
+            order:
+              type: object
+              required: [id, totalMinor, currency]
+              properties:
+                id: { type: string, maxLength: 128 }
+                totalMinor: { type: integer, minimum: 0, maximum: 2147483647 }
+                currency: { type: string, pattern: "^[A-Z]{3}$" }
+                items:
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: object
+                    required: [sku, name, quantity, unitPriceMinor]
+                    properties:
+                      sku: { type: string }
+                      name: { type: string }
+                      quantity: { type: integer, minimum: 1 }
+                      unitPriceMinor: { type: integer, minimum: 0 }
+            customer:
+              type: object
+              required: [externalId, email]
+              properties:
+                externalId: { type: string, maxLength: 128 }
+                email: { type: string, format: email }
+                name: { type: string, maxLength: 200 }
+        simulation:
+          description: Mock-provider fault injection. Fail the first N attempts transiently, or "permanent".
+          type: object
+          properties:
+            failures:
+              type: object
+              propertyNames: { $ref: "#/components/schemas/ActionKey" }
+              additionalProperties:
+                oneOf: [{ type: integer, minimum: 0, maximum: 20 }, { const: permanent }]
+      example:
+        eventId: demo_evt_0001
+        type: order.created
+        occurredAt: "2026-10-31T12:00:00.000Z"
+        synthetic: true
+        data:
+          order: { id: demo_order_0001, totalMinor: 12999, currency: USD }
+          customer: { externalId: demo_customer_001, email: customer@example.test, name: Demo Customer }
+
+    IngestResult:
+      type: object
+      properties:
+        status: { type: string, enum: [accepted, duplicate] }
+        eventId: { type: string }
+        incomingEventId: { type: string }
+        matchedWorkflows: { type: integer }
+        runIds: { type: array, items: { type: string } }
+
+    Me:
+      type: object
+      properties:
+        user: { type: object, properties: { id: { type: string }, email: { type: string }, name: { type: string } } }
+        activeOrganization:
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                id: { type: string }
+                name: { type: string }
+                slug: { type: string }
+                role: { type: string }
+                permissions:
+                  type: object
+                  additionalProperties: { type: array, items: { type: string } }
+        organizations:
+          type: array
+          items: { type: object, properties: { id: { type: string }, name: { type: string }, slug: { type: string }, role: { type: string } } }
+
+    Connection:
+      type: object
+      properties:
+        id: { type: string }
+        provider: { $ref: "#/components/schemas/Provider" }
+        providerLabel: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [active, disabled] }
+        publicId: { type: string, description: Sent as X-Fleqo-Connection-Id }
+        hasSigningSecret: { type: boolean }
+        secretLast4: { type: [string, "null"] }
+        secretRotatedAt: { type: [string, "null"], format: date-time }
+        stats:
+          type: object
+          properties:
+            events: { type: integer }
+            customers: { type: integer }
+            rows: { type: integer }
+            lastEventAt: { type: [string, "null"], format: date-time }
+
+    Mapping:
+      description: Destination field → event source path (e.g. `{"email":"data.customer.email"}`); empty string = unmapped optional field.
+      type: object
+      additionalProperties: { type: string }
+
+    Workflow:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: [string, "null"] }
+        status: { type: string, enum: [active, inactive, archived] }
+        trigger:
+          type: object
+          properties:
+            provider: { const: mock_store }
+            eventType: { const: order.created }
+            connection: { type: object }
+        actions:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              key: { $ref: "#/components/schemas/ActionKey" }
+              position: { type: integer }
+              mapping: { $ref: "#/components/schemas/Mapping" }
+              config: { type: object, properties: { sheetName: { type: string } } }
+              connection: { type: object }
+        stats: { type: object }
+
+    ExecutionSummary:
+      type: object
+      properties:
+        id: { type: string }
+        status: { $ref: "#/components/schemas/RunStatus" }
+        attempts: { type: integer }
+        lastError: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        finishedAt: { type: [string, "null"], format: date-time }
+        workflow: { type: object, properties: { id: { type: string }, name: { type: string } } }
+        incomingEvent: { type: object, properties: { externalEventId: { type: string }, isSynthetic: { type: boolean }, source: { type: string } } }
+        order: { type: [object, "null"], properties: { id: { type: string }, totalMinor: { type: integer }, currency: { type: string } } }
+        actionRuns:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              position: { type: integer }
+              provider: { $ref: "#/components/schemas/Provider" }
+              actionType: { type: string }
+              status: { $ref: "#/components/schemas/RunStatus" }
+              attempts: { type: integer }
+
+    ExecutionDetail:
+      allOf:
+        - $ref: "#/components/schemas/ExecutionSummary"
+        - type: object
+          properties:
+            incomingEvent:
+              type: object
+              properties:
+                payload: { $ref: "#/components/schemas/OrderCreatedEvent" }
+                receivedAt: { type: string, format: date-time }
+                signedAt: { type: string, format: date-time }
+                duplicateCount: { type: integer }
+            actionRuns:
+              type: array
+              items:
+                type: object
+                properties:
+                  input: { type: [object, "null"] }
+                  output: { type: [object, "null"] }
+                  lastError: { type: [string, "null"] }
+                  errorKind: { type: [string, "null"], enum: [transient, permanent, null] }
+            logs:
+              type: array
+              items:
+                type: object
+                properties:
+                  level: { type: string, enum: [info, warn, error] }
+                  message: { type: string }
+                  attempt: { type: [integer, "null"] }
+                  actionRunId: { type: [string, "null"] }
+                  createdAt: { type: string, format: date-time }
+            deadLetters:
+              type: array
+              items:
+                type: object
+                properties:
+                  reason: { type: string, enum: [permanent_error, retries_exhausted] }
+                  errorMessage: { type: string }
+                  attempts: { type: integer }
+                  resolvedAt: { type: [string, "null"], format: date-time }
+            dispatch:
+              type: object
+              properties:
+                status: { type: string, enum: [pending, dispatched] }
+                generation: { type: integer }
+
+security:
+  - session: []
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      security: []
+      summary: Liveness
+      responses: { "200": { description: API process is up } }
+  /api/db-health:
+    get:
+      tags: [Health]
+      security: []
+      summary: PostgreSQL connectivity
+      responses: { "200": { description: Connected }, "503": { description: Unavailable } }
+  /api/ready:
+    get:
+      tags: [Health]
+      security: []
+      summary: Readiness (PostgreSQL + Redis)
+      responses:
+        "200": { description: Ready, content: { application/json: { example: { success: true, database: connected, redis: connected } } } }
+        "503": { description: A dependency is unavailable }
+
+  /api/auth/{path}:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Better Auth handlers
+      description: |
+        Mounted Better Auth handler. Used endpoints: `sign-up/email`, `sign-in/email`, `sign-out`, `get-session`
+        and organization plugin endpoints. Fleqo's own routes below wrap the organization operations the UI needs.
+      parameters: [{ name: path, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Better Auth response } }
+
+  /api/me:
+    get:
+      tags: [Organizations]
+      summary: Current user, memberships, active organization role and permissions
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Me" } } } }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+  /api/organizations:
+    post:
+      tags: [Organizations]
+      summary: Create an organization (caller becomes owner; becomes the active organization)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string, minLength: 2, maxLength: 80 }, slug: { type: string } } } } }
+      responses:
+        "201": { description: Created }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/organizations/active:
+    post:
+      tags: [Organizations]
+      summary: Switch the session's active organization (membership verified)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [organizationId], properties: { organizationId: { type: string } } } } }
+      responses:
+        "200": { description: Switched }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/organization:
+    get:
+      tags: [Organizations]
+      summary: Active organization details
+      responses:
+        "200": { description: OK }
+        "409": { $ref: "#/components/responses/Conflict" }
+    patch:
+      tags: [Organizations]
+      summary: Rename the organization (owner/admin)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string } } } } } }
+      responses: { "200": { description: Updated }, "403": { $ref: "#/components/responses/Forbidden" } }
+
+  /api/team:
+    get:
+      tags: [Team]
+      summary: Members (and pending invitations for owner/admin)
+      responses: { "200": { description: OK } }
+  /api/team/invitations:
+    post:
+      tags: [Team]
+      summary: Invite by email (owner/admin). No email is sent in the MVP.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [email, role], properties: { email: { type: string, format: email }, role: { type: string, enum: [admin, member] } } } } }
+      responses: { "201": { description: Invitation created }, "403": { $ref: "#/components/responses/Forbidden" } }
+  /api/team/invitations/{id}:
+    delete:
+      tags: [Team]
+      summary: Cancel invitation (owner/admin)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: Cancelled }, "404": { $ref: "#/components/responses/NotFound" } }
+  /api/team/members/{id}:
+    patch:
+      tags: [Team]
+      summary: Change a member's role (owner/admin per Better Auth rules)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [role], properties: { role: { type: string, enum: [owner, admin, member] } } } } } }
+      responses: { "200": { description: Updated }, "403": { $ref: "#/components/responses/Forbidden" }, "404": { $ref: "#/components/responses/NotFound" } }
+    delete:
+      tags: [Team]
+      summary: Remove a member
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: Removed }, "403": { $ref: "#/components/responses/Forbidden" } }
+  /api/invitations/{id}:
+    get:
+      tags: [Team]
+      summary: Invitation details for the invite-link recipient
+      description: |
+        The invitation ID is the shared secret of the invite link. Only the invited email address may read
+        or accept it. Invitations are never listed by email (emails are unverified in the MVP), and Better
+        Auth's `/organization/list-user-invitations` endpoint is disabled.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: "{ invitation: { id, role, email, expiresAt, organization: { id, name }, inviterEmail } }" }
+        "400": { description: Invitation not found, expired or no longer pending }
+        "403": { description: Signed-in user is not the recipient }
+  /api/invitations/{id}/accept:
+    post:
+      tags: [Team]
+      summary: Accept an invitation and make that organization active
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: Accepted } }
+
+  /api/connections:
+    get:
+      tags: [Connections]
+      summary: List connections with stats and the webhook contract (member+)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connections: { type: array, items: { $ref: "#/components/schemas/Connection" } }
+                  webhook: { type: object, properties: { path: { type: string }, headers: { type: array, items: { type: string } }, signature: { type: string } } }
+    post:
+      tags: [Connections]
+      summary: Connect a mock provider (owner/admin). The signing secret is returned once.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [provider], properties: { provider: { $ref: "#/components/schemas/Provider" }, name: { type: string } } } } }
+      responses:
+        "201":
+          description: Created
+          content: { application/json: { schema: { type: object, properties: { connection: { $ref: "#/components/schemas/Connection" }, signingSecret: { type: [string, "null"], example: whsec_… } } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/connections/providers:
+    get:
+      tags: [Connections]
+      summary: Available mock providers with labels and descriptions
+      responses: { "200": { description: "{ providers: { provider, label, description }[] }" } }
+  /api/connections/{id}:
+    patch:
+      tags: [Connections]
+      summary: Rename or enable/disable (owner/admin)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string }, status: { type: string, enum: [active, disabled] } } } } } }
+      responses: { "200": { description: Updated }, "404": { $ref: "#/components/responses/NotFound" } }
+  /api/connections/{id}/rotate-secret:
+    post:
+      tags: [Connections]
+      summary: Rotate the Mock Store signing secret (returned once)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: Rotated } }
+  /api/mock-crm/customers:
+    get:
+      tags: [Connections]
+      summary: Mock CRM customer records (cursor pagination, optional `search`)
+      parameters: [{ $ref: "#/components/parameters/Limit" }, { $ref: "#/components/parameters/Cursor" }, { name: search, in: query, schema: { type: string } }]
+      responses: { "200": { description: "{ items, nextCursor, total }" } }
+  /api/mock-sheet/rows:
+    get:
+      tags: [Connections]
+      summary: Mock Sheet rows (cursor pagination, optional `search`)
+      parameters: [{ $ref: "#/components/parameters/Limit" }, { $ref: "#/components/parameters/Cursor" }, { name: search, in: query, schema: { type: string } }]
+      responses: { "200": { description: "{ items, nextCursor, total }" } }
+
+  /api/workflows/catalog:
+    get:
+      tags: [Workflows]
+      summary: Trigger, allowed source fields, action definitions with default mappings, available connections
+      responses: { "200": { description: OK } }
+  /api/workflows:
+    get:
+      tags: [Workflows]
+      summary: List workflows with run statistics
+      parameters: [{ name: includeArchived, in: query, schema: { type: string, enum: ["true", "false"], default: "false" } }]
+      responses: { "200": { description: "{ workflows: Workflow[] }" } }
+    post:
+      tags: [Workflows]
+      summary: Create a workflow (owner/admin). Connections are resolved from the organization's own connections.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, actions]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                description: { type: string, maxLength: 500 }
+                enabled: { type: boolean, default: false }
+                trigger: { type: object, properties: { provider: { const: mock_store }, eventType: { const: order.created } } }
+                actions:
+                  type: array
+                  minItems: 1
+                  maxItems: 2
+                  items:
+                    type: object
+                    required: [key]
+                    properties:
+                      key: { $ref: "#/components/schemas/ActionKey" }
+                      mapping: { $ref: "#/components/schemas/Mapping" }
+                      config: { type: object, properties: { sheetName: { type: string, maxLength: 60 } }, additionalProperties: false }
+            example:
+              name: Order Sync
+              enabled: true
+              actions: [{ key: mock_crm.upsert_customer }, { key: mock_sheet.append_order, config: { sheetName: Orders } }]
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { type: object, properties: { workflow: { $ref: "#/components/schemas/Workflow" } } } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/workflows/{id}:
+    get:
+      tags: [Workflows]
+      summary: Workflow detail with run counts and recent runs
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: OK }, "404": { $ref: "#/components/responses/NotFound" } }
+    patch:
+      tags: [Workflows]
+      summary: Update name/description/status and action mappings/config (owner/admin)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: [string, "null"] }
+                status: { type: string, enum: [active, inactive] }
+                actions:
+                  type: array
+                  items: { type: object, required: [id], properties: { id: { type: string }, mapping: { $ref: "#/components/schemas/Mapping" }, config: { type: object } } }
+      responses: { "200": { description: Updated }, "409": { $ref: "#/components/responses/Conflict" }, "422": { $ref: "#/components/responses/ValidationFailed" } }
+    delete:
+      tags: [Workflows]
+      summary: Archive (history is kept)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: Archived } }
+
+  /api/webhooks/mock-store:
+    post:
+      tags: [Webhooks]
+      security: [{ webhookSignature: [] }]
+      summary: Receive a signed order.created event
+      description: |
+        Verification order: connection lookup → timestamp within ±WEBHOOK_TOLERANCE_SECONDS (300) →
+        constant-time HMAC-SHA256 of `${timestamp}.${rawBody}` → JSON parse → schema validation.
+        The event, matching runs and outbox rows are committed before the response.
+      parameters:
+        - { name: X-Fleqo-Connection-Id, in: header, required: true, schema: { type: string } }
+        - { name: X-Fleqo-Timestamp, in: header, required: true, schema: { type: string, description: Unix seconds } }
+        - { name: X-Fleqo-Signature, in: header, required: true, schema: { type: string, pattern: "^[0-9a-f]{64}$" } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/OrderCreatedEvent" } } }
+      responses:
+        "202": { description: Accepted and durably recorded, content: { application/json: { schema: { $ref: "#/components/schemas/IngestResult" } } } }
+        "200": { description: Duplicate acknowledged (no new runs), content: { application/json: { schema: { $ref: "#/components/schemas/IngestResult" } } } }
+        "400": { description: Not JSON or wrong content type }
+        "401": { description: "invalid_signature | stale_timestamp | unknown_connection" }
+        "409": { description: Event ID reused with a different payload }
+        "413": { description: Body larger than 64 KB }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { description: Rate limited }
+
+  /api/demo/sources:
+    get:
+      tags: [Demo]
+      summary: Import sources with provenance and licence notes
+      responses: { "200": { description: OK } }
+  /api/demo/import:
+    post:
+      tags: [Demo]
+      summary: Import public (DummyJSON) or offline synthetic demo data (owner/admin); repeatable
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { source: { type: string, enum: [fleqo_synthetic, dummyjson], default: fleqo_synthetic }, limit: { type: integer, minimum: 1, maximum: 100, default: 30 } } } } }
+      responses:
+        "200": { description: "{ import: { source, created, updated, byKind, license, isSynthetic } }" }
+        "503": { description: DummyJSON unavailable (use the synthetic source) }
+  /api/demo/records:
+    get:
+      tags: [Demo]
+      summary: Imported records
+      parameters: [{ name: kind, in: query, schema: { type: string, enum: [customer, product, cart] } }, { $ref: "#/components/parameters/Limit" }, { $ref: "#/components/parameters/Cursor" }]
+      responses: { "200": { description: "{ items, nextCursor, counts }" } }
+  /api/demo/simulate-order:
+    post:
+      tags: [Demo]
+      summary: Generate, sign and deliver synthetic order.created events through the webhook pipeline (member+)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                count: { type: integer, minimum: 1, maximum: 100, default: 1 }
+                customerExternalId: { type: string }
+                failures:
+                  type: object
+                  properties:
+                    crm: { oneOf: [{ type: integer, minimum: 0, maximum: 20 }, { const: permanent }] }
+                    sheet: { oneOf: [{ type: integer, minimum: 0, maximum: 20 }, { const: permanent }] }
+                duplicateOfEventId: { type: string, description: Re-deliver an earlier event unchanged }
+      responses:
+        "202": { description: "{ deliveries: (IngestResult & { orderId })[] }" }
+        "409": { description: Mock Store not connected/enabled, or no imported data }
+
+  /api/executions:
+    get:
+      tags: [Executions]
+      summary: Workflow runs (filters + cursor pagination)
+      parameters:
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/RunStatus" } }
+        - { name: workflowId, in: query, schema: { type: string } }
+        - { name: search, in: query, description: Event ID, order ID or customer email, schema: { type: string } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ExecutionSummary" } }, nextCursor: { type: [string, "null"] }, total: { type: integer } } } } }
+  /api/executions/{id}:
+    get:
+      tags: [Executions]
+      summary: Run detail with action runs, logs, dead letters and dispatch state
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { execution: { $ref: "#/components/schemas/ExecutionDetail" } } } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/executions/{id}/retry:
+    post:
+      tags: [Executions]
+      summary: Retry a failed run (owner/admin); only incomplete actions run again
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "202": { description: Re-queued }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: Run is not in `failed` state }
+  /api/events:
+    get:
+      tags: [Executions]
+      summary: Recent incoming events with matched workflows and duplicate counts
+      parameters: [{ $ref: "#/components/parameters/Limit" }, { $ref: "#/components/parameters/Cursor" }]
+      responses: { "200": { description: OK } }
+
+  /api/dashboard/summary:
+    get:
+      tags: [Dashboard]
+      summary: Real counts of workflows, runs (all/24h), events, duplicates, open dead letters, destinations, recent runs
+      responses: { "200": { description: OK } }
+  /api/audit-logs:
+    get:
+      tags: [Dashboard]
+      summary: Audit trail (owner/admin)
+      parameters: [{ $ref: "#/components/parameters/Limit" }]
+      responses: { "200": { description: OK }, "403": { $ref: "#/components/responses/Forbidden" } }

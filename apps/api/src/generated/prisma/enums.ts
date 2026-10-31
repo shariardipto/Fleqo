@@ -9,7 +9,55 @@
 * 🟢 You can import this file directly.
 */
 
+export const ConnectionProvider = {
+  mock_store: 'mock_store',
+  mock_crm: 'mock_crm',
+  mock_sheet: 'mock_sheet'
+} as const
+
+export type ConnectionProvider = (typeof ConnectionProvider)[keyof typeof ConnectionProvider]
 
 
-// This file is empty because there are no enums in the schema.
-export {}
+export const ConnectionStatus = {
+  active: 'active',
+  disabled: 'disabled'
+} as const
+
+export type ConnectionStatus = (typeof ConnectionStatus)[keyof typeof ConnectionStatus]
+
+
+export const WorkflowStatus = {
+  active: 'active',
+  inactive: 'inactive',
+  archived: 'archived'
+} as const
+
+export type WorkflowStatus = (typeof WorkflowStatus)[keyof typeof WorkflowStatus]
+
+
+export const RunStatus = {
+  queued: 'queued',
+  running: 'running',
+  retrying: 'retrying',
+  succeeded: 'succeeded',
+  failed: 'failed'
+} as const
+
+export type RunStatus = (typeof RunStatus)[keyof typeof RunStatus]
+
+
+export const DispatchStatus = {
+  pending: 'pending',
+  dispatched: 'dispatched'
+} as const
+
+export type DispatchStatus = (typeof DispatchStatus)[keyof typeof DispatchStatus]
+
+
+export const LogLevel = {
+  info: 'info',
+  warn: 'warn',
+  error: 'error'
+} as const
+
+export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel]

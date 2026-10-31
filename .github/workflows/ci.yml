@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Credentials for the throwaway CI service containers only.
+  DATABASE_URL: postgresql://fleqo:fleqo@localhost:5432/fleqo?schema=public
+  REDIS_URL: redis://localhost:6379
+  BETTER_AUTH_URL: http://localhost:3000
+  WEB_ORIGINS: http://localhost:3000
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build, E2E, smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: fleqo
+          POSTGRES_PASSWORD: fleqo
+          POSTGRES_DB: fleqo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fleqo -d fleqo"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Generate per-run secrets (never committed)
+        run: |
+          echo "BETTER_AUTH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")" >> "$GITHUB_ENV"
+          echo "ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")" >> "$GITHUB_ENV"
+
+      - run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Apply migrations
+        run: npm run db:deploy
+
+      - name: Schema drift guard (schema.prisma must match the migrations)
+        working-directory: apps/api
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+
+      - run: npm run lint
+      - run: npm run typecheck
+
+      - name: API unit + integration tests (includes the 100-event batch)
+        run: npm test
+
+      - name: Build API and web
+        run: npm run build
+
+      - name: Start API, worker and production web
+        run: |
+          mkdir -p logs
+          nohup npm run dev:api > logs/api.log 2>&1 &
+          WORKER_HEALTH_PORT=4100 WORKFLOW_BACKOFF_MS=300 nohup npm run dev:worker > logs/worker.log 2>&1 &
+          nohup npm run start --workspace=apps/web > logs/web.log 2>&1 &
+          npx --yes wait-on@8 -t 120000 http://localhost:4000/api/ready http://localhost:4100/health http://localhost:3000/sign-in
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E (desktop + mobile, console-error guard)
+        working-directory: apps/web
+        env:
+          E2E_BASE_URL: http://localhost:3000
+        run: npm run test:e2e
+
+      - name: Smoke test through the web proxy
+        run: npm run smoke -- --base-url http://localhost:3000
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            apps/api/test-results/batch-summary.json
+            apps/web/playwright-report
+            apps/web/test-results
+            logs
+          if-no-files-found: ignore
+          retention-days: 14
+
+  reliability:
+    name: Process-level reliability (worker/Redis/PostgreSQL restarts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=apps/api
+      - run: bash scripts/reliability-check.sh
+      - name: Upload reliability logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reliability
+          path: apps/api/test-results/reliability
+          if-no-files-found: ignore
+          retention-days: 14
+
+  docker:
+    name: API/worker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f apps/api/Dockerfile -t fleqo-api:ci .
+      - name: Image size
+        run: docker image ls fleqo-api:ci --format "{{.Size}}"

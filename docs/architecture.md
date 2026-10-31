@@ -1,8 +1,8 @@
 # Fleqo — System Architecture Design
 
-**Phase:** 00 · Step 02  
-**Version:** 0.1 (MVP architecture)  
-**Status:** Proposed implementation baseline  
+**Phase:** 00 · Step 02 (updated after M0–M8)  
+**Version:** 0.2 (MVP architecture, implemented)  
+**Status:** Implemented. Deviations from the original proposal are recorded in [§16](#16-implementation-notes-v02).  
 **Source of truth:** `docs/requirements.md`  
 **Scope:** A multi-organization, predefined order-sync automation platform using public data and PostgreSQL-backed mock integrations.
 
@@ -197,6 +197,8 @@ Organization context may be selected by a trusted UI header/path parameter, but 
 
 ## 11. Suggested repository structure
 
+> **Implemented structure differs:** the worker is a second entry point inside `apps/api` (`src/worker.ts`) and Prisma stays in `apps/api`, so there are no `apps/worker` or `packages/*` directories. See §16 and the README's repository layout. The original proposal is kept below for reference.
+
 ```text
 fleqo/
 ├── apps/
@@ -261,6 +263,12 @@ Production migrations run as controlled release operations. Worker and API share
 | PostgreSQL-backed mock destinations | Public demo APIs don't guarantee persistence | End-to-end effects can be tested reliably |
 | Database idempotency + outbox | Safe duplicates and queue failure recovery | A little additional implementation complexity |
 | Form-based workflows only | Keep solo-developer MVP tractable | Visual canvas deferred |
+| Worker as second entry point in `apps/api` | One Prisma client + shared engine code; still an independent process/service | Same image for API and worker |
+| Better Auth Organization plugin for orgs/members/invitations | Official model, roles owner/admin/member, no duplicate tables | Fleqo re-checks membership per request anyway |
+| Tenant = session `activeOrganizationId` | Server-side state; no client-supplied org header | Org switch affects all of the user's tabs |
+| Same-origin `/api` proxy (Next.js rewrites) | First-party cookies on Vercel; no cross-site cookie/CORS setup | One extra hop through the web host |
+| Run lease + conditional action-state update in the destination transaction | Exactly-once commit of each logical action under duplicate jobs/crashes | One extra conditional UPDATE per action |
+| Canonical JSON hash for duplicate detection | JSONB reorders keys; re-sends must still match | Key-order-only changes treated as identical |
 
 ## 15. Step 02 review checklist
 
@@ -272,3 +280,39 @@ Production migrations run as controlled release operations. Worker and API share
 - [ ] I reviewed `database-erd.md` and the deployment diagram.
 
 **Next:** Phase 01 — initialize npm workspaces, Next.js, Express, Docker PostgreSQL/Redis, and basic health endpoints. No application source code needs to be written during Step 02.
+
+## 16. Implementation notes (v0.2)
+
+These notes describe the system as built. Each one names its code location and the test that covers it.
+
+### 16.1 Processes
+| Process | Entry point | Local | Production |
+| --- | --- | --- | --- |
+| Web | `apps/web` (Next.js 16) | `npm run dev:web` (:3000) | Vercel, root `apps/web`, `API_URL` → API |
+| API | `apps/api/src/server.ts` → `createApp()` in `src/app.ts` | `npm run dev:api` (:4000) | Railway, `deploy/railway/api.json`, pre-deploy `prisma migrate deploy`, health `/api/ready` |
+| Worker + dispatcher | `apps/api/src/worker.ts` | `npm run dev:worker` | Railway, `deploy/railway/worker.json`, `node dist/worker.js` |
+
+Both Railway services build from `apps/api/Dockerfile`. The image was built and run in production mode locally, and the smoke test passed against it; nothing has been deployed live.
+
+### 16.2 Request pipeline (`src/app.ts`)
+`pino-http` (request ID, `clientIp`, redaction) → Helmet → CORS (`WEB_ORIGINS`, credentials, no wildcard) → `Cache-Control: no-store` on `/api` → health routes → **Better Auth** `app.all("/api/auth/*splat")` → **webhooks** (`express.raw`, 64 KB, own per-IP rate limit) → `express.json` (256 KB) → API rate limit → **trusted-origin check** for cookie-authenticated mutations → module routers → 404 → error handler (`AppError`, Zod, Better Auth `APIError`, body-parser errors → `{error:{code,message,details,requestId}}`). In production the process refuses to start with non-HTTPS origins or `NODE_TLS_REJECT_UNAUTHORIZED=0` (`src/config/env.ts`).
+
+### 16.3 Authorization
+`requireOrg(permission)` (`src/middleware/auth.ts`): Better Auth session → `activeOrganizationId` → `member` lookup by `(organizationId, userId)` → `roleHasPermission(role, permission)` from `src/lib/permissions.ts`, the same access-control statements Better Auth uses for its own organization endpoints. Better Auth fails closed: refusing a switch into a foreign organization clears the session's active organization (`test/auth-tenancy.test.ts`).
+
+### 16.4 Ingestion and outbox
+`src/modules/webhooks/ingest.service.ts` — verify → validate → one transaction (event + runs + action runs + dispatch + logs) → best-effort `dispatchPending(ids)`. A unique violation means a duplicate: if the canonical hash matches → 200 `duplicate`, else 409. `src/engine/dispatcher.ts` claims rows with `FOR UPDATE SKIP LOCKED` and a 30 s lease, enqueues `run-<id>-g<generation>` and marks them dispatched, or records `lastError` with exponential backoff (`test/webhooks.test.ts`, Redis-outage case).
+
+### 16.5 Execution
+`src/engine/executor.ts` — run lease → actions in order (skip succeeded) → mapping (`src/engine/mapping.ts`, re-validated with Zod) → adapter + conditional success update in one transaction (`src/integrations/mock-providers.ts`) → transient: `retrying` + rethrow (BullMQ exponential backoff, `WORKFLOW_MAX_ATTEMPTS`); permanent or final attempt: `failed` + `dead_letter_event` + `UnrecoverableError`. `src/engine/recovery.ts` re-dispatches unfinished runs whose queue job is gone. Manual retry: `POST /api/executions/:id/retry` (`test/worker.test.ts`, `test/batch.test.ts`).
+
+### 16.6 Demo data and simulator
+DummyJSON adapter (fixed URLs, Zod-validated, prices → minor units) and an offline deterministic generator (`src/modules/demo/import.service.ts`). The simulator (`simulator.service.ts`) signs events with the tenant's decrypted secret and sends them through the **same** `ingestOrderEvent` verification path. Deterministic fault injection (`simulation.failures`) is honoured only by the mock adapters.
+
+### 16.7 Deviations from the v0.1 proposal
+1. No `apps/worker` or `packages/*` (owner decision): the worker lives in `apps/api`.
+2. Organizations, members and invitations come from the Better Auth Organization plugin (owner decision).
+3. `ExecutionLog` table added for per-attempt logs.
+4. The simulator delivers in-process through the verification function rather than over HTTP to itself. External senders and all tests use real HTTP.
+5. Invitations are accepted in-app; no email is sent (no outbound messaging in the MVP).
+6. **v1.0 release hardening:** invitations are accepted only through an invite link (the random invitation ID), because email addresses are unverified. Email-based listing is removed and Better Auth's `/organization/list-user-invitations` is disabled. Stale-run recovery checks BullMQ job **state**, not existence. See [release-audit.md](./release-audit.md).

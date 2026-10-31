@@ -1,52 +1,22 @@
-import "dotenv/config";
-import express from "express";
-import cors from "cors";
-import helmet from "helmet";
+import { createApp } from "./app.ts";
+import { env } from "./config/env.ts";
+import { createRunQueue } from "./engine/queue.ts";
+import { logger } from "./lib/logger.ts";
 import { prisma } from "./lib/prisma.ts";
 
-const app = express();
+const runQueue = createRunQueue();
+const app = createApp({ runQueue });
 
-const PORT = Number(process.env.PORT ?? 4000);
-
-app.use(helmet());
-
-app.use(
-  cors({
-    origin: "http://localhost:3000",
-    credentials: true,
-  })
-);
-
-app.use(express.json({ limit: "1mb" }));
-
-app.get("/api/health", (_req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Fleqo API is running!",
-    service: "fleqo-api",
-  });
+const server = app.listen(env.PORT, () => {
+  logger.info({ port: env.PORT }, `Fleqo API running on port ${env.PORT}`);
 });
 
+async function shutdown(signal: string) {
+  logger.info({ signal }, "Shutting down API");
+  server.close();
+  await Promise.allSettled([runQueue.close(), prisma.$disconnect()]);
+  process.exit(0);
+}
 
-app.get("/api/db-health", async (_req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-
-    res.status(200).json({
-      success: true,
-      database: "connected",
-      service: "fleqo-api",
-    });
-  } catch (error) {
-    console.error("Database health check failed:", error);
-
-    res.status(503).json({
-      success: false,
-      database: "unavailable",
-    });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`Fleqo API running on port ${PORT}`);
-});
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

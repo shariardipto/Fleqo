@@ -51,7 +51,27 @@ export const AnyNull = runtime.AnyNull
 
 
 export const ModelName = {
-
+  User: 'User',
+  Session: 'Session',
+  Account: 'Account',
+  Verification: 'Verification',
+  Organization: 'Organization',
+  Member: 'Member',
+  Invitation: 'Invitation',
+  IntegrationConnection: 'IntegrationConnection',
+  Workflow: 'Workflow',
+  WorkflowTrigger: 'WorkflowTrigger',
+  WorkflowAction: 'WorkflowAction',
+  IncomingEvent: 'IncomingEvent',
+  EventDispatch: 'EventDispatch',
+  WorkflowRun: 'WorkflowRun',
+  ActionRun: 'ActionRun',
+  ExecutionLog: 'ExecutionLog',
+  DeadLetterEvent: 'DeadLetterEvent',
+  MockCustomer: 'MockCustomer',
+  MockSheetRow: 'MockSheetRow',
+  ImportedRecord: 'ImportedRecord',
+  AuditLog: 'AuditLog'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -68,4 +88,399 @@ export const TransactionIsolationLevel = runtime.makeStrictEnum({
 } as const)
 
 export type TransactionIsolationLevel = (typeof TransactionIsolationLevel)[keyof typeof TransactionIsolationLevel]
+
+
+export const UserScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  email: 'email',
+  emailVerified: 'emailVerified',
+  image: 'image',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
+
+
+export const SessionScalarFieldEnum = {
+  id: 'id',
+  expiresAt: 'expiresAt',
+  token: 'token',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  ipAddress: 'ipAddress',
+  userAgent: 'userAgent',
+  userId: 'userId',
+  activeOrganizationId: 'activeOrganizationId'
+} as const
+
+export type SessionScalarFieldEnum = (typeof SessionScalarFieldEnum)[keyof typeof SessionScalarFieldEnum]
+
+
+export const AccountScalarFieldEnum = {
+  id: 'id',
+  accountId: 'accountId',
+  providerId: 'providerId',
+  userId: 'userId',
+  accessToken: 'accessToken',
+  refreshToken: 'refreshToken',
+  idToken: 'idToken',
+  accessTokenExpiresAt: 'accessTokenExpiresAt',
+  refreshTokenExpiresAt: 'refreshTokenExpiresAt',
+  scope: 'scope',
+  password: 'password',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type AccountScalarFieldEnum = (typeof AccountScalarFieldEnum)[keyof typeof AccountScalarFieldEnum]
+
+
+export const VerificationScalarFieldEnum = {
+  id: 'id',
+  identifier: 'identifier',
+  value: 'value',
+  expiresAt: 'expiresAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type VerificationScalarFieldEnum = (typeof VerificationScalarFieldEnum)[keyof typeof VerificationScalarFieldEnum]
+
+
+export const OrganizationScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  slug: 'slug',
+  logo: 'logo',
+  createdAt: 'createdAt',
+  metadata: 'metadata'
+} as const
+
+export type OrganizationScalarFieldEnum = (typeof OrganizationScalarFieldEnum)[keyof typeof OrganizationScalarFieldEnum]
+
+
+export const MemberScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  userId: 'userId',
+  role: 'role',
+  createdAt: 'createdAt'
+} as const
+
+export type MemberScalarFieldEnum = (typeof MemberScalarFieldEnum)[keyof typeof MemberScalarFieldEnum]
+
+
+export const InvitationScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  email: 'email',
+  role: 'role',
+  status: 'status',
+  expiresAt: 'expiresAt',
+  createdAt: 'createdAt',
+  inviterId: 'inviterId'
+} as const
+
+export type InvitationScalarFieldEnum = (typeof InvitationScalarFieldEnum)[keyof typeof InvitationScalarFieldEnum]
+
+
+export const IntegrationConnectionScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  provider: 'provider',
+  name: 'name',
+  status: 'status',
+  publicId: 'publicId',
+  secretCiphertext: 'secretCiphertext',
+  secretLast4: 'secretLast4',
+  secretRotatedAt: 'secretRotatedAt',
+  config: 'config',
+  createdById: 'createdById',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type IntegrationConnectionScalarFieldEnum = (typeof IntegrationConnectionScalarFieldEnum)[keyof typeof IntegrationConnectionScalarFieldEnum]
+
+
+export const WorkflowScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  name: 'name',
+  description: 'description',
+  status: 'status',
+  createdById: 'createdById',
+  archivedAt: 'archivedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type WorkflowScalarFieldEnum = (typeof WorkflowScalarFieldEnum)[keyof typeof WorkflowScalarFieldEnum]
+
+
+export const WorkflowTriggerScalarFieldEnum = {
+  id: 'id',
+  workflowId: 'workflowId',
+  organizationId: 'organizationId',
+  provider: 'provider',
+  eventType: 'eventType',
+  connectionId: 'connectionId',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type WorkflowTriggerScalarFieldEnum = (typeof WorkflowTriggerScalarFieldEnum)[keyof typeof WorkflowTriggerScalarFieldEnum]
+
+
+export const WorkflowActionScalarFieldEnum = {
+  id: 'id',
+  workflowId: 'workflowId',
+  organizationId: 'organizationId',
+  position: 'position',
+  provider: 'provider',
+  actionType: 'actionType',
+  connectionId: 'connectionId',
+  mapping: 'mapping',
+  config: 'config',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type WorkflowActionScalarFieldEnum = (typeof WorkflowActionScalarFieldEnum)[keyof typeof WorkflowActionScalarFieldEnum]
+
+
+export const IncomingEventScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  connectionId: 'connectionId',
+  provider: 'provider',
+  externalEventId: 'externalEventId',
+  eventType: 'eventType',
+  payload: 'payload',
+  payloadSha256: 'payloadSha256',
+  occurredAt: 'occurredAt',
+  signedAt: 'signedAt',
+  isSynthetic: 'isSynthetic',
+  source: 'source',
+  matchedWorkflowCount: 'matchedWorkflowCount',
+  duplicateCount: 'duplicateCount',
+  lastDuplicateAt: 'lastDuplicateAt',
+  receivedAt: 'receivedAt'
+} as const
+
+export type IncomingEventScalarFieldEnum = (typeof IncomingEventScalarFieldEnum)[keyof typeof IncomingEventScalarFieldEnum]
+
+
+export const EventDispatchScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  incomingEventId: 'incomingEventId',
+  workflowRunId: 'workflowRunId',
+  status: 'status',
+  generation: 'generation',
+  attempts: 'attempts',
+  nextAttemptAt: 'nextAttemptAt',
+  lastError: 'lastError',
+  dispatchedAt: 'dispatchedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type EventDispatchScalarFieldEnum = (typeof EventDispatchScalarFieldEnum)[keyof typeof EventDispatchScalarFieldEnum]
+
+
+export const WorkflowRunScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  workflowId: 'workflowId',
+  incomingEventId: 'incomingEventId',
+  status: 'status',
+  attempts: 'attempts',
+  leaseExpiresAt: 'leaseExpiresAt',
+  lastError: 'lastError',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type WorkflowRunScalarFieldEnum = (typeof WorkflowRunScalarFieldEnum)[keyof typeof WorkflowRunScalarFieldEnum]
+
+
+export const ActionRunScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  workflowRunId: 'workflowRunId',
+  workflowActionId: 'workflowActionId',
+  position: 'position',
+  provider: 'provider',
+  actionType: 'actionType',
+  status: 'status',
+  attempts: 'attempts',
+  input: 'input',
+  output: 'output',
+  lastError: 'lastError',
+  errorKind: 'errorKind',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ActionRunScalarFieldEnum = (typeof ActionRunScalarFieldEnum)[keyof typeof ActionRunScalarFieldEnum]
+
+
+export const ExecutionLogScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  workflowRunId: 'workflowRunId',
+  actionRunId: 'actionRunId',
+  level: 'level',
+  message: 'message',
+  attempt: 'attempt',
+  metadata: 'metadata',
+  createdAt: 'createdAt'
+} as const
+
+export type ExecutionLogScalarFieldEnum = (typeof ExecutionLogScalarFieldEnum)[keyof typeof ExecutionLogScalarFieldEnum]
+
+
+export const DeadLetterEventScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  workflowRunId: 'workflowRunId',
+  actionRunId: 'actionRunId',
+  reason: 'reason',
+  errorMessage: 'errorMessage',
+  attempts: 'attempts',
+  resolvedAt: 'resolvedAt',
+  resolvedByUserId: 'resolvedByUserId',
+  createdAt: 'createdAt'
+} as const
+
+export type DeadLetterEventScalarFieldEnum = (typeof DeadLetterEventScalarFieldEnum)[keyof typeof DeadLetterEventScalarFieldEnum]
+
+
+export const MockCustomerScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  connectionId: 'connectionId',
+  provider: 'provider',
+  customerExternalId: 'customerExternalId',
+  email: 'email',
+  name: 'name',
+  lastOrderExternalId: 'lastOrderExternalId',
+  isSynthetic: 'isSynthetic',
+  createdByActionRunId: 'createdByActionRunId',
+  updatedByActionRunId: 'updatedByActionRunId',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type MockCustomerScalarFieldEnum = (typeof MockCustomerScalarFieldEnum)[keyof typeof MockCustomerScalarFieldEnum]
+
+
+export const MockSheetRowScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  connectionId: 'connectionId',
+  workflowActionId: 'workflowActionId',
+  sheetName: 'sheetName',
+  orderExternalId: 'orderExternalId',
+  customerExternalId: 'customerExternalId',
+  customerEmail: 'customerEmail',
+  customerName: 'customerName',
+  totalMinor: 'totalMinor',
+  currency: 'currency',
+  orderedAt: 'orderedAt',
+  incomingEventId: 'incomingEventId',
+  actionRunId: 'actionRunId',
+  isSynthetic: 'isSynthetic',
+  createdAt: 'createdAt'
+} as const
+
+export type MockSheetRowScalarFieldEnum = (typeof MockSheetRowScalarFieldEnum)[keyof typeof MockSheetRowScalarFieldEnum]
+
+
+export const ImportedRecordScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  source: 'source',
+  sourceRecordId: 'sourceRecordId',
+  kind: 'kind',
+  data: 'data',
+  raw: 'raw',
+  isSynthetic: 'isSynthetic',
+  sourceUrl: 'sourceUrl',
+  license: 'license',
+  importedById: 'importedById',
+  importedAt: 'importedAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ImportedRecordScalarFieldEnum = (typeof ImportedRecordScalarFieldEnum)[keyof typeof ImportedRecordScalarFieldEnum]
+
+
+export const AuditLogScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  actorUserId: 'actorUserId',
+  action: 'action',
+  targetType: 'targetType',
+  targetId: 'targetId',
+  metadata: 'metadata',
+  createdAt: 'createdAt'
+} as const
+
+export type AuditLogScalarFieldEnum = (typeof AuditLogScalarFieldEnum)[keyof typeof AuditLogScalarFieldEnum]
+
+
+export const SortOrder = {
+  asc: 'asc',
+  desc: 'desc'
+} as const
+
+export type SortOrder = (typeof SortOrder)[keyof typeof SortOrder]
+
+
+export const JsonNullValueInput = {
+  JsonNull: JsonNull
+} as const
+
+export type JsonNullValueInput = (typeof JsonNullValueInput)[keyof typeof JsonNullValueInput]
+
+
+export const NullableJsonNullValueInput = {
+  DbNull: DbNull,
+  JsonNull: JsonNull
+} as const
+
+export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
+
+
+export const QueryMode = {
+  default: 'default',
+  insensitive: 'insensitive'
+} as const
+
+export type QueryMode = (typeof QueryMode)[keyof typeof QueryMode]
+
+
+export const NullsOrder = {
+  first: 'first',
+  last: 'last'
+} as const
+
+export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
+
+
+export const JsonNullValueFilter = {
+  DbNull: DbNull,
+  JsonNull: JsonNull,
+  AnyNull: AnyNull
+} as const
+
+export type JsonNullValueFilter = (typeof JsonNullValueFilter)[keyof typeof JsonNullValueFilter]
 

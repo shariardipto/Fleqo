@@ -1,0 +1,17 @@
+**/node_modules
+**/.next
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.github
+.claude
+.vscode
+docs
+**/test-results
+**/playwright-report
+**/coverage
+*.msi
+# Regenerated inside the image by `npm run build`
+apps/api/src/generated

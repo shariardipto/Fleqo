@@ -1,210 +1,136 @@
-# Fleqo — Database ERD and Data Model Plan
+# Fleqo — Database ERD and Data Model
 
-**Phase:** 00 · Step 02  
-**Version:** 0.1 (proposed schema; not yet migrated)  
-**Database:** PostgreSQL  
-**ORM:** Prisma 7
+**Version:** 0.2, reconciled with the implemented schema (migration `20261031155142_init`)
+**Database:** PostgreSQL 18 · **ORM:** Prisma 7.10 (`prisma-client` generator, `@prisma/adapter-pg`)
+**Source of truth:** [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prisma)
 
-This design expands the data-model section of `requirements.md`. Tables will be implemented and validated during Phase 02, not during Phase 00.
+> Version 0.1 of this document was a proposal. This version describes what is implemented. Differences from the proposal are listed in [§7](#7-changes-from-the-v01-proposal).
 
 ## 1. Entity-relationship diagram
 
 ```mermaid
 erDiagram
-  USER ||--o{ ORGANIZATION_MEMBER : joins
-  ORGANIZATION ||--o{ ORGANIZATION_MEMBER : has
-  ORGANIZATION ||--o{ INTEGRATION_CONNECTION : owns
-  ORGANIZATION ||--o{ WORKFLOW : owns
-  ORGANIZATION ||--o{ INCOMING_EVENT : receives
-  ORGANIZATION ||--o{ MOCK_CUSTOMER : has
-  ORGANIZATION ||--o{ MOCK_SHEET_ROW : has
-  ORGANIZATION ||--o{ AUDIT_LOG : logs
-  ORGANIZATION ||--o{ IMPORTED_RECORD : stores
-  WORKFLOW ||--|| WORKFLOW_TRIGGER : defines
-  WORKFLOW ||--o{ WORKFLOW_ACTION : contains
-  INTEGRATION_CONNECTION ||--o{ INCOMING_EVENT : validates
-  INCOMING_EVENT ||--o{ WORKFLOW_RUN : initiates
-  INCOMING_EVENT ||--o{ EVENT_DISPATCH : schedules
-  WORKFLOW ||--o{ WORKFLOW_RUN : runs
-  WORKFLOW_RUN ||--o{ ACTION_RUN : contains
-  WORKFLOW_ACTION ||--o{ ACTION_RUN : executes
-  WORKFLOW_ACTION ||--o{ MOCK_SHEET_ROW : writes
-  WORKFLOW_RUN ||--o{ DEAD_LETTER_EVENT : may_fail
-  USER ||--o{ SESSION : has
-  USER ||--o{ ACCOUNT : has
+  user ||--o{ session : has
+  user ||--o{ account : has
+  user ||--o{ member : "belongs via"
+  user ||--o{ invitation : "invited (inviterId)"
+  organization ||--o{ member : has
+  organization ||--o{ invitation : has
+  organization ||--o{ integration_connection : owns
+  organization ||--o{ workflow : owns
+  organization ||--o{ incoming_event : receives
+  organization ||--o{ workflow_run : runs
+  organization ||--o{ mock_customer : has
+  organization ||--o{ mock_sheet_row : has
+  organization ||--o{ imported_record : stores
+  organization ||--o{ audit_log : logs
+  workflow ||--|| workflow_trigger : "has one"
+  workflow ||--o{ workflow_action : "ordered actions"
+  integration_connection ||--o{ workflow_trigger : "store connection"
+  integration_connection ||--o{ workflow_action : "destination connection"
+  integration_connection ||--o{ incoming_event : "verified sender"
+  incoming_event ||--o{ workflow_run : initiates
+  incoming_event ||--o{ event_dispatch : schedules
+  workflow ||--o{ workflow_run : runs
+  workflow_run ||--|| event_dispatch : "outbox row"
+  workflow_run ||--o{ action_run : contains
+  workflow_action ||--o{ action_run : executes
+  workflow_run ||--o{ execution_log : logs
+  action_run ||--o{ execution_log : logs
+  workflow_run ||--o{ dead_letter_event : "may fail into"
+  workflow_action ||--o{ mock_sheet_row : writes
+  integration_connection ||--o{ mock_customer : writes
+  integration_connection ||--o{ mock_sheet_row : writes
 
-  USER {
-    string id PK
-    string email UK
-    string name
-  }
-  ORGANIZATION {
-    string id PK
-    string name
-    string slug UK
-  }
-  ORGANIZATION_MEMBER {
-    string id PK
-    string organizationId FK
-    string userId FK
-    string role
-  }
-  INTEGRATION_CONNECTION {
-    string id PK
-    string organizationId FK
-    string provider
-    string status
-    string publicId UK
-  }
-  WORKFLOW {
-    string id PK
-    string organizationId FK
-    string name
-    string status
-  }
-  WORKFLOW_TRIGGER {
-    string id PK
-    string workflowId FK
-    string provider
-    string eventType
-  }
-  WORKFLOW_ACTION {
-    string id PK
-    string workflowId FK
-    int position
-    string provider
-    string actionType
-  }
-  INCOMING_EVENT {
-    string id PK
-    string organizationId FK
-    string connectionId FK
-    string externalEventId
-    string provider
-    json payload
-  }
-  EVENT_DISPATCH {
-    string id PK
-    string incomingEventId FK
-    string workflowRunId FK
-    string status
-  }
-  WORKFLOW_RUN {
-    string id PK
-    string workflowId FK
-    string incomingEventId FK
-    string status
-  }
-  ACTION_RUN {
-    string id PK
-    string workflowRunId FK
-    string workflowActionId FK
-    string status
-    int attempts
-  }
-  MOCK_CUSTOMER {
-    string id PK
-    string organizationId FK
-    string provider
-    string customerExternalId
-  }
-  MOCK_SHEET_ROW {
-    string id PK
-    string organizationId FK
-    string workflowActionId FK
-    string orderExternalId
-  }
-  IMPORTED_RECORD {
-    string id PK
-    string organizationId FK
-    string source
-    string sourceRecordId
-  }
-  DEAD_LETTER_EVENT {
-    string id PK
-    string workflowRunId FK
-    string reason
-  }
-  AUDIT_LOG {
-    string id PK
-    string organizationId FK
-    string action
-  }
-  SESSION {
-    string id PK
-    string userId FK
-  }
-  ACCOUNT {
-    string id PK
-    string userId FK
-  }
+  organization { string id PK  string name  string slug UK }
+  member { string id PK  string organizationId FK  string userId FK  string role }
+  integration_connection { string id PK  string organizationId FK  enum provider  enum status  string publicId UK  string secretCiphertext }
+  workflow { string id PK  string organizationId FK  string name  enum status }
+  workflow_trigger { string id PK  string workflowId FK_UK  enum provider  string eventType  string connectionId FK }
+  workflow_action { string id PK  string workflowId FK  int position  enum provider  string actionType  json mapping  json config }
+  incoming_event { string id PK  string organizationId FK  string connectionId FK  string externalEventId  json payload  string payloadSha256 }
+  event_dispatch { string id PK  string workflowRunId FK_UK  enum status  int generation  datetime nextAttemptAt }
+  workflow_run { string id PK  string workflowId FK  string incomingEventId FK  enum status  int attempts  datetime leaseExpiresAt }
+  action_run { string id PK  string workflowRunId FK  string workflowActionId FK  enum status  int attempts  string errorKind }
+  execution_log { string id PK  string workflowRunId FK  string actionRunId FK  enum level  string message }
+  dead_letter_event { string id PK  string workflowRunId FK  string reason  datetime resolvedAt }
+  mock_customer { string id PK  string organizationId FK  string customerExternalId  string email }
+  mock_sheet_row { string id PK  string organizationId FK  string workflowActionId FK  string orderExternalId  int totalMinor  char3 currency }
+  imported_record { string id PK  string organizationId FK  string source  string sourceRecordId  string kind  bool isSynthetic }
+  audit_log { string id PK  string organizationId FK  string actorUserId  string action }
 ```
 
-`Verification` (Better Auth) is also required but is omitted from the diagram for readability. The exact Better Auth fields must be generated/verified against its adapter schema in Phase 03. Mermaid entities above list **key fields only**, not full production column definitions.
+Mermaid entities list key columns only. `verification` (Better Auth) has no relations and is omitted.
 
 ## 2. Schema groups
 
-| Group | Entities | Purpose |
+| Group | Tables | Owner |
 | --- | --- | --- |
-| Identity | User, Session, Account, Verification | Better Auth-managed authentication |
-| Organizations | Organization, OrganizationMember | Tenant boundaries and roles |
-| Configuration | IntegrationConnection, Workflow, WorkflowTrigger, WorkflowAction | User automation rules |
-| Ingestion | IncomingEvent, EventDispatch | Durable event and dispatch |
-| Execution | WorkflowRun, ActionRun, DeadLetterEvent | Action history, failure visibility |
-| Mock destinations | MockCustomer, MockSheetRow | Real persistent effects of demo actions |
-| Demo/import | ImportedRecord | Normalized external/sample data provenance |
-| Audit | AuditLog | Who changed what and when |
+| Identity | `user`, `session` (+`activeOrganizationId`), `account`, `verification` | Better Auth (generated with `npx auth@1.7.14 generate`) |
+| Organizations | `organization`, `member`, `invitation` | Better Auth Organization plugin (Fleqo adds `@@unique([organizationId, userId])` on `member`) |
+| Configuration | `integration_connection`, `workflow`, `workflow_trigger`, `workflow_action` | Fleqo |
+| Ingestion | `incoming_event`, `event_dispatch` (transactional outbox) | Fleqo |
+| Execution | `workflow_run`, `action_run`, `execution_log`, `dead_letter_event` | Fleqo |
+| Mock destinations | `mock_customer`, `mock_sheet_row` | Fleqo |
+| Demo / import | `imported_record` | Fleqo |
+| Audit | `audit_log` | Fleqo |
 
-`EventDispatch` and `ImportedRecord` are architecture additions beyond the initial SRS table list: they implement its durable recovery and public-data import requirements. `RetryJob` does not have to be a separate initial table because BullMQ handles job scheduling and `ActionRun` captures durable attempts; this is an implementation choice.
+Enums: `ConnectionProvider` (mock_store, mock_crm, mock_sheet), `ConnectionStatus` (active, disabled), `WorkflowStatus` (active, inactive, archived), `RunStatus` (queued, running, retrying, succeeded, failed — used by runs **and** action runs), `DispatchStatus` (pending, dispatched), `LogLevel` (info, warn, error). Fleqo primary keys are UUIDv7 (`@default(uuid(7))`, time-ordered, used for cursor pagination); Better Auth generates its own IDs.
 
-## 3. Database constraints and indexes
+## 3. Constraints and indexes (implemented)
 
-| Entity | Key constraint/index | Reason |
+| Table | Constraint / index | Purpose |
 | --- | --- | --- |
-| OrganizationMember | `UNIQUE (organizationId, userId)` | One membership per user per org |
-| IntegrationConnection | `UNIQUE (publicId)` | Identify a signed mock connection |
-| WorkflowTrigger | `UNIQUE (workflowId)` | Exactly one trigger in MVP |
-| WorkflowAction | `UNIQUE (workflowId, position)` | Stable, ordered actions |
-| IncomingEvent | `UNIQUE (organizationId, provider, externalEventId)` | Event idempotency |
-| WorkflowRun | `UNIQUE (workflowId, incomingEventId)` | One run per workflow/event |
-| ActionRun | `UNIQUE (workflowRunId, workflowActionId)` | One logical action state per run |
-| EventDispatch | `UNIQUE (workflowRunId)` | Prevent duplicated dispatch intent |
-| MockCustomer | `UNIQUE (organizationId, provider, customerExternalId)` | Safe CRM upsert |
-| MockSheetRow | `UNIQUE (organizationId, workflowActionId, orderExternalId)` | Safe order row insert/upsert |
-| ImportedRecord | `UNIQUE (organizationId, source, sourceRecordId)` | Repeatable import |
-| WorkflowRun | `INDEX (status, createdAt)` and `INDEX (workflowId, createdAt)` | Monitoring queries |
-| IncomingEvent | `INDEX (organizationId, createdAt)` | Event history |
-| ActionRun | `INDEX (status, updatedAt)` | Retry and monitoring |
+| member | `UNIQUE (organizationId, userId)` | One membership per user per organization |
+| organization | `UNIQUE (slug)` | Better Auth |
+| integration_connection | `UNIQUE (publicId)` | Identify the signing connection from `X-Fleqo-Connection-Id` |
+| integration_connection | `UNIQUE (organizationId, provider)` | MVP: one connection per mock provider per organization |
+| workflow_trigger | `UNIQUE (workflowId)` | Exactly one trigger per workflow |
+| workflow_action | `UNIQUE (workflowId, position)`, `CHECK (position >= 1)` | Stable action order |
+| incoming_event | `UNIQUE (organizationId, provider, externalEventId)` | Event-level idempotency |
+| event_dispatch | `UNIQUE (workflowRunId)`; `INDEX (status, nextAttemptAt)` | One outbox row per run; dispatcher scan |
+| workflow_run | `UNIQUE (workflowId, incomingEventId)`; `CHECK (attempts >= 0)` | One run per workflow and event |
+| action_run | `UNIQUE (workflowRunId, workflowActionId)`; `CHECK (attempts >= 0)`; `CHECK (errorKind IN ('transient','permanent'))` | Durable state of each logical action |
+| mock_customer | `UNIQUE (organizationId, provider, customerExternalId)` | CRM upsert key |
+| mock_sheet_row | `UNIQUE (organizationId, workflowActionId, orderExternalId)`; `CHECK (totalMinor >= 0)`; `CHECK (currency ~ '^[A-Z]{3}$')` | One row per order and action; money integrity |
+| imported_record | `UNIQUE (organizationId, source, sourceRecordId)` | Repeatable imports (`sourceRecordId` = `users/5`, `products/12`, `carts/3`, `customers/7`) |
+| workflow_run | `INDEX (organizationId, createdAt)`, `(organizationId, status)`, `(status, createdAt)`, `(workflowId, createdAt)` | Monitoring queries |
+| incoming_event | `INDEX (organizationId, receivedAt)` | Event history |
+| action_run | `INDEX (status, updatedAt)` | Retry / monitoring |
+| execution_log | `INDEX (workflowRunId, createdAt)` | Run log timeline |
+| dead_letter_event | `INDEX (organizationId, resolvedAt)` | Open dead letters |
+| audit_log | `INDEX (organizationId, createdAt)` | Audit trail |
 
-Fields such as `createdAt`, `updatedAt`, error metadata, source attribution, original JSON, and organization-scoping foreign keys are expected in the actual Prisma models.
+The CHECK constraints are written by hand at the end of the init migration because Prisma cannot model them. Uniqueness and CHECK behaviour is covered by `apps/api/test/schema-constraints.test.ts`.
 
-## 4. Example tenant access rule
+## 4. Tenancy rules
+- Every Fleqo table that holds tenant data has `organizationId`, and the API always queries by `id` **and** `organizationId`, where the organization comes from the session's server-side `activeOrganizationId` after re-verifying `member`.
+- Webhooks set `organizationId` from the **verified connection**; any organization ID inside the JSON body is ignored.
+- The worker reads organization scope from the persisted run and event, never from the job payload (the job only carries the run ID, dispatch ID and generation).
+- `onDelete: Cascade` from `organization` removes tenant data. Connections use `Restrict` from events, triggers, actions and destination rows, so history cannot be orphaned; workflows are archived, never deleted, from the UI.
 
-A signed-in user cannot access a workflow by ID alone. The API first verifies that the user is an active member of the selected organization; then it looks up `Workflow` using both `id` and `organizationId`. The worker resolves organization scope from persisted, already-validated event and run references, never from the job payload as an authority.
+## 5. Money, event data and provenance
+- `mock_sheet_row.totalMinor` is an integer in minor units with `currency CHAR(3)`; event validation limits values to the int32 range.
+- `incoming_event.payload` keeps the received JSON (JSONB). `payloadSha256` hashes **canonical (key-sorted) JSON**, so re-deliveries match even after JSONB reorders keys, and a different payload under the same event ID is rejected (409).
+- `isSynthetic` is stored on events, customers, sheet rows and imported records. `imported_record` stores `source`, `sourceUrl`, `license` and the raw source record.
+- Timestamps: `receivedAt`, `signedAt`, `occurredAt` on events; `startedAt` / `finishedAt` / `updatedAt` on runs and action runs; one `execution_log` row per state transition and attempt.
 
-## 5. Money and event data
+## 6. Idempotency at a glance
+| Layer | Mechanism |
+| --- | --- |
+| Event | `UNIQUE (organizationId, provider, externalEventId)`; duplicate → 200 with no new runs |
+| Run | `UNIQUE (workflowId, incomingEventId)`; run **lease** (`leaseExpiresAt`) taken by a conditional UPDATE |
+| Dispatch | `UNIQUE (workflowRunId)`; `generation` bumped for manual retry or recovery; job ID `run-<id>-g<generation>` |
+| Action | `UNIQUE (workflowRunId, workflowActionId)`; succeeded actions are skipped; success committed with `UPDATE … WHERE status='running' AND attempts=<n>` |
+| Destination | Customer upsert key; sheet insert-or-keep key; write + action success in **one transaction** |
 
-- Preserve `order.totalMinor` as integer minor currency units with `order.currency`.
-- Preserve the original received webhook JSON as a `JSONB`-compatible Prisma `Json` field for authorized debugging.
-- Preserve normalized fields used by CRM/Sheet actions separately from raw payload.
-- Use synthetic customer contact details by default; avoid embedding real personal data in public demo seeds.
-- Include timestamps for ingestion, start, completion, retry attempts and state transitions.
-
-## 6. What will be implemented when?
-
-- **Phase 02:** Identity-compatible schema foundations, Organization, Workflow, Trigger, Action, Connection, Event, Run, ActionRun and initial constraints.
-- **Phase 03:** Better Auth actual models and organization/role access.
-- **Phase 04–05:** ImportedRecord, MockCustomer and MockSheetRow.
-- **Phase 07–09:** EventDispatch, dead-letter records, transaction-safe action writes, recovery indexes.
-
-This staging is a task plan. All design constraints should be captured before corresponding features go live.
-
-## 7. Review questions
-
-1. Why is `organizationId` repeated across business-owned entities?
-2. Why does `IncomingEvent` need a unique key separate from `WorkflowRun`?
-3. Why does a `MockSheetRow` need a unique external order ID instead of blind append?
-4. What happens if PostgreSQL commit succeeds but Redis enqueue fails?
-5. Which entities are created by Better Auth rather than manually designed?
-
-**Next:** Phase 01 setup, followed by Phase 02 Prisma schema and migrations.
+## 7. Changes from the v0.1 proposal
+| Proposal | Implemented | Reason |
+| --- | --- | --- |
+| `OrganizationMember` table | Better Auth `member` (+ `invitation`) | Owner decision: use the official Organization plugin; no duplicate tables |
+| Status as free text | PostgreSQL enums; runs and action runs share `RunStatus` | Database-level validation |
+| No log table | `execution_log` | Action-level, per-attempt logs required by the execution detail view |
+| `MockCustomer` key only | Plus `createdByActionRunId` / `updatedByActionRunId` / `lastOrderExternalId` | Shows whether an upsert created or updated, and traceability |
+| `ImportedRecord` 3-column key | Same key; `kind` is a separate column and `sourceRecordId` carries the source path | Avoids ID collisions between users, products and carts without changing the key |
+| — | `integration_connection UNIQUE (organizationId, provider)` | MVP simplification: one mock connection per provider |
+| — | Hand-written CHECK constraints | Money and counter integrity |

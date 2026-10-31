@@ -8,3 +8,496 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model User {
+  id            String       @id
+  name          String
+  email         String
+  emailVerified Boolean      @default(false)
+  image         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  members       Member[]
+  invitations   Invitation[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id                   String   @id
+  expiresAt            DateTime
+  token                String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  ipAddress            String?
+  userAgent            String?
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeOrganizationId String?
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Organization {
+  id          String       @id
+  name        String
+  slug        String
+  logo        String?
+  createdAt   DateTime
+  metadata    String?
+  members     Member[]
+  invitations Invitation[]
+
+  // Fleqo tenant-owned data (not managed by Better Auth)
+  connections     IntegrationConnection[]
+  workflows       Workflow[]
+  incomingEvents  IncomingEvent[]
+  workflowRuns    WorkflowRun[]
+  mockCustomers   MockCustomer[]
+  mockSheetRows   MockSheetRow[]
+  importedRecords ImportedRecord[]
+  auditLogs       AuditLog[]
+
+  @@unique([slug])
+  @@map("organization")
+}
+
+model Member {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String       @default("member")
+  createdAt      DateTime
+
+  // Added by Fleqo: one membership per user per organization.
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("member")
+}
+
+model Invitation {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           String?
+  status         String       @default("pending")
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  inviterId      String
+  user           User         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("invitation")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fleqo domain models. Every tenant-owned row carries organizationId; the API
+// always filters by the verified organization, never by resource ID alone.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ConnectionProvider {
+  mock_store
+  mock_crm
+  mock_sheet
+}
+
+enum ConnectionStatus {
+  active
+  disabled
+}
+
+enum WorkflowStatus {
+  active
+  inactive
+  archived
+}
+
+enum RunStatus {
+  queued
+  running
+  retrying
+  succeeded
+  failed
+}
+
+enum DispatchStatus {
+  pending
+  dispatched
+}
+
+enum LogLevel {
+  info
+  warn
+  error
+}
+
+/// A tenant's configured mock integration. mock_store connections sign webhooks with an encrypted secret.
+model IntegrationConnection {
+  id               String             @id @default(uuid(7))
+  organizationId   String
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider         ConnectionProvider
+  name             String
+  status           ConnectionStatus   @default(active)
+  /// Public identifier sent in X-Fleqo-Connection-Id. Identifies, never authorizes.
+  publicId         String             @unique
+  /// AES-256-GCM ciphertext of the webhook signing secret (mock_store only).
+  secretCiphertext String?
+  secretLast4      String?
+  secretRotatedAt  DateTime?
+  config           Json               @default("{}")
+  createdById      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  triggers       WorkflowTrigger[]
+  actions        WorkflowAction[]
+  incomingEvents IncomingEvent[]
+  mockCustomers  MockCustomer[]
+  mockSheetRows  MockSheetRow[]
+
+  /// MVP: one connection per mock provider per organization.
+  @@unique([organizationId, provider])
+  @@index([organizationId])
+  @@map("integration_connection")
+}
+
+model Workflow {
+  id             String         @id @default(uuid(7))
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  status         WorkflowStatus @default(inactive)
+  createdById    String?
+  archivedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  trigger WorkflowTrigger?
+  actions WorkflowAction[]
+  runs    WorkflowRun[]
+
+  @@index([organizationId, status])
+  @@map("workflow")
+}
+
+model WorkflowTrigger {
+  id             String                @id @default(uuid(7))
+  workflowId     String                @unique
+  workflow       Workflow              @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  organizationId String
+  provider       ConnectionProvider
+  eventType      String
+  connectionId   String
+  connection     IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([organizationId, provider, eventType])
+  @@map("workflow_trigger")
+}
+
+model WorkflowAction {
+  id             String                @id @default(uuid(7))
+  workflowId     String
+  workflow       Workflow              @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  organizationId String
+  position       Int
+  provider       ConnectionProvider
+  actionType     String
+  connectionId   String
+  connection     IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  /// Target field -> source path in the event (e.g. {"email": "data.customer.email"}).
+  mapping        Json
+  config         Json                  @default("{}")
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  actionRuns ActionRun[]
+  sheetRows  MockSheetRow[]
+
+  @@unique([workflowId, position])
+  @@index([organizationId])
+  @@map("workflow_action")
+}
+
+/// A verified inbound event. Raw JSON is kept for audit/debugging.
+model IncomingEvent {
+  id                   String                @id @default(uuid(7))
+  organizationId       String
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectionId         String
+  connection           IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  provider             ConnectionProvider
+  externalEventId      String
+  eventType            String
+  payload              Json
+  payloadSha256        String
+  occurredAt           DateTime?
+  signedAt             DateTime
+  isSynthetic          Boolean               @default(false)
+  /// "webhook" (external HTTP sender) or "simulator" (in-app demo).
+  source               String                @default("webhook")
+  matchedWorkflowCount Int                   @default(0)
+  duplicateCount       Int                   @default(0)
+  lastDuplicateAt      DateTime?
+  receivedAt           DateTime              @default(now())
+
+  runs       WorkflowRun[]
+  dispatches EventDispatch[]
+
+  @@unique([organizationId, provider, externalEventId])
+  @@index([organizationId, receivedAt])
+  @@map("incoming_event")
+}
+
+/// Transactional outbox: committed with the event and its runs; a dispatcher enqueues pending rows.
+model EventDispatch {
+  id              String         @id @default(uuid(7))
+  organizationId  String
+  incomingEventId String
+  incomingEvent   IncomingEvent  @relation(fields: [incomingEventId], references: [id], onDelete: Cascade)
+  workflowRunId   String         @unique
+  workflowRun     WorkflowRun    @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  status          DispatchStatus @default(pending)
+  /// Bumped by manual retry so the run gets a new queue job.
+  generation      Int            @default(1)
+  attempts        Int            @default(0)
+  nextAttemptAt   DateTime       @default(now())
+  lastError       String?
+  dispatchedAt    DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@map("event_dispatch")
+}
+
+model WorkflowRun {
+  id              String        @id @default(uuid(7))
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workflowId      String
+  workflow        Workflow      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  incomingEventId String
+  incomingEvent   IncomingEvent @relation(fields: [incomingEventId], references: [id], onDelete: Cascade)
+  status          RunStatus     @default(queued)
+  /// Worker deliveries of this run (all generations).
+  attempts        Int           @default(0)
+  leaseExpiresAt  DateTime?
+  lastError       String?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  dispatch    EventDispatch?
+  actionRuns  ActionRun[]
+  logs        ExecutionLog[]
+  deadLetters DeadLetterEvent[]
+
+  @@unique([workflowId, incomingEventId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
+  @@index([status, createdAt])
+  @@index([workflowId, createdAt])
+  @@map("workflow_run")
+}
+
+/// Durable state of one action within one run: the action-level idempotency key.
+model ActionRun {
+  id               String             @id @default(uuid(7))
+  organizationId   String
+  workflowRunId    String
+  workflowRun      WorkflowRun        @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  workflowActionId String
+  workflowAction   WorkflowAction     @relation(fields: [workflowActionId], references: [id], onDelete: Cascade)
+  position         Int
+  provider         ConnectionProvider
+  actionType       String
+  status           RunStatus          @default(queued)
+  attempts         Int                @default(0)
+  input            Json?
+  output           Json?
+  lastError        String?
+  /// "transient" | "permanent"
+  errorKind        String?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  logs ExecutionLog[]
+
+  @@unique([workflowRunId, workflowActionId])
+  @@index([status, updatedAt])
+  @@map("action_run")
+}
+
+model ExecutionLog {
+  id             String      @id @default(uuid(7))
+  organizationId String
+  workflowRunId  String
+  workflowRun    WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  actionRunId    String?
+  actionRun      ActionRun?  @relation(fields: [actionRunId], references: [id], onDelete: Cascade)
+  level          LogLevel
+  message        String
+  attempt        Int?
+  metadata       Json        @default("{}")
+  createdAt      DateTime    @default(now())
+
+  @@index([workflowRunId, createdAt])
+  @@map("execution_log")
+}
+
+/// Persistent record of a run whose retries were exhausted or that failed permanently.
+model DeadLetterEvent {
+  id               String      @id @default(uuid(7))
+  organizationId   String
+  workflowRunId    String
+  workflowRun      WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  actionRunId      String?
+  reason           String
+  errorMessage     String
+  attempts         Int
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  createdAt        DateTime    @default(now())
+
+  @@index([organizationId, resolvedAt])
+  @@map("dead_letter_event")
+}
+
+/// Mock CRM customer. Upserted by (organizationId, provider, customerExternalId).
+model MockCustomer {
+  id                   String                @id @default(uuid(7))
+  organizationId       String
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectionId         String
+  connection           IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  provider             ConnectionProvider    @default(mock_crm)
+  customerExternalId   String
+  email                String
+  name                 String?
+  lastOrderExternalId  String?
+  isSynthetic          Boolean               @default(true)
+  createdByActionRunId String
+  updatedByActionRunId String
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  @@unique([organizationId, provider, customerExternalId])
+  @@index([organizationId, email])
+  @@map("mock_customer")
+}
+
+/// Mock spreadsheet row. One row per (organization, sheet action, order), so retries never append twice.
+model MockSheetRow {
+  id                 String                @id @default(uuid(7))
+  organizationId     String
+  organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectionId       String
+  connection         IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  workflowActionId   String
+  workflowAction     WorkflowAction        @relation(fields: [workflowActionId], references: [id], onDelete: Cascade)
+  sheetName          String
+  orderExternalId    String
+  customerExternalId String?
+  customerEmail      String
+  customerName       String?
+  totalMinor         Int
+  currency           String                @db.Char(3)
+  orderedAt          DateTime?
+  incomingEventId    String
+  actionRunId        String
+  isSynthetic        Boolean               @default(true)
+  createdAt          DateTime              @default(now())
+
+  @@unique([organizationId, workflowActionId, orderExternalId])
+  @@index([organizationId, createdAt])
+  @@map("mock_sheet_row")
+}
+
+/// Normalized public/synthetic demo data with provenance.
+model ImportedRecord {
+  id             String       @id @default(uuid(7))
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// e.g. "dummyjson" or "fleqo_synthetic"
+  source         String
+  /// Source-scoped ID, e.g. "users/5", "products/12", "carts/3".
+  sourceRecordId String
+  /// "customer" | "product" | "cart"
+  kind           String
+  data           Json
+  raw            Json?
+  isSynthetic    Boolean
+  sourceUrl      String?
+  license        String?
+  importedById   String?
+  importedAt     DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, source, sourceRecordId])
+  @@index([organizationId, kind])
+  @@map("imported_record")
+}
+
+model AuditLog {
+  id             String       @id @default(uuid(7))
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actorUserId    String?
+  action         String
+  targetType     String
+  targetId       String?
+  metadata       Json         @default("{}")
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+  @@map("audit_log")
+}

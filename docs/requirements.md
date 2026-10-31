@@ -185,19 +185,21 @@ This is the planned contract; request/response schemas will be finalized before 
 
 ## 15. Acceptance Criteria (Definition of Done)
 
-- [ ] New account can sign in and create an organization.
-- [ ] Org member cannot access another organization's resources.
-- [ ] Public example data can be imported, and generated orders are labeled synthetic.
-- [ ] User can configure and enable the Order Sync workflow.
-- [ ] Valid signed `order.created` events are accepted and processed.
-- [ ] Invalid signature and malformed payload are rejected.
-- [ ] One unique order creates/updates the expected mock CRM customer and mock Sheet row.
-- [ ] Re-sending the same event does **not** create duplicate records.
-- [ ] Temporary destination failure triggers retry; already completed actions are not repeated.
-- [ ] Failed and successful runs are visible with action-level logs.
-- [ ] A repeatable test batch containing at least 100 generated events (plus duplicate/failure scenarios) passes its assertions.
-- [ ] Frontend, backend, worker and database are deployed and smoke-tested.
-- [ ] GitHub README documents architecture, setup, design tradeoffs and real test results.
+Status as of 2026-10-31. Evidence is in [`agent-progress.md`](./agent-progress.md#acceptance-checklist-requirements-15).
+
+- [x] New account can sign in and create an organization.
+- [x] Org member cannot access another organization's resources.
+- [x] Public example data can be imported, and generated orders are labeled synthetic.
+- [x] User can configure and enable the Order Sync workflow.
+- [x] Valid signed `order.created` events are accepted and processed.
+- [x] Invalid signature and malformed payload are rejected.
+- [x] One unique order creates/updates the expected mock CRM customer and mock Sheet row.
+- [x] Re-sending the same event does **not** create duplicate records.
+- [x] Temporary destination failure triggers retry; already completed actions are not repeated.
+- [x] Failed and successful runs are visible with action-level logs.
+- [x] A repeatable test batch containing at least 100 generated events (plus duplicate/failure scenarios) passes its assertions.
+- [ ] Frontend, backend, worker and database are deployed and smoke-tested. — **Blocked (external):** no cloud credentials or deployment approval yet. The deployable configuration is complete, and the production Docker image passed the smoke test locally (13/13).
+- [x] GitHub README documents architecture, setup, design tradeoffs and real test results.
 
 ## 16. Delivery Phases
 

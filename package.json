@@ -1,21 +1,37 @@
 {
   "name": "fleqo",
   "version": "1.0.0",
-  "description": "",
+  "description": "Fleqo — integration & workflow automation hub (MVP)",
   "main": "index.js",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "dev:web": "npm run dev --workspace=apps/web",
-    "dev:api": "npm run dev --workspace=apps/api"
+    "dev:api": "npm run dev --workspace=apps/api",
+    "dev:worker": "npm run dev:worker --workspace=apps/api",
+    "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
+    "typecheck": "npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web",
+    "lint": "npm run lint --workspace=apps/api && npm run lint --workspace=apps/web",
+    "test": "npm run test --workspace=apps/api",
+    "test:batch": "npm run test:batch --workspace=apps/api",
+    "test:e2e": "npm run test:e2e --workspace=apps/web",
+    "test:reliability": "npm run build --workspace=apps/api && bash scripts/reliability-check.sh",
+    "db:migrate": "npm run db:migrate --workspace=apps/api",
+    "db:deploy": "npm run db:deploy --workspace=apps/api",
+    "db:seed": "npm run db:seed --workspace=apps/api",
+    "smoke": "npm run smoke --workspace=apps/api --",
+    "infra:up": "docker compose up -d --wait",
+    "infra:down": "docker compose stop"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "private": true,
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "workspaces": [
     "apps/*"
   ]

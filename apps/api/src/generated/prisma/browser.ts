@@ -17,4 +17,108 @@ import * as Prisma from './internal/prismaNamespaceBrowser.ts'
 export { Prisma }
 export * as $Enums from './enums.ts'
 export * from './enums.ts';
-
+/**
+ * Model User
+ * 
+ */
+export type User = Prisma.UserModel
+/**
+ * Model Session
+ * 
+ */
+export type Session = Prisma.SessionModel
+/**
+ * Model Account
+ * 
+ */
+export type Account = Prisma.AccountModel
+/**
+ * Model Verification
+ * 
+ */
+export type Verification = Prisma.VerificationModel
+/**
+ * Model Organization
+ * 
+ */
+export type Organization = Prisma.OrganizationModel
+/**
+ * Model Member
+ * 
+ */
+export type Member = Prisma.MemberModel
+/**
+ * Model Invitation
+ * 
+ */
+export type Invitation = Prisma.InvitationModel
+/**
+ * Model IntegrationConnection
+ * A tenant's configured mock integration. mock_store connections sign webhooks with an encrypted secret.
+ */
+export type IntegrationConnection = Prisma.IntegrationConnectionModel
+/**
+ * Model Workflow
+ * 
+ */
+export type Workflow = Prisma.WorkflowModel
+/**
+ * Model WorkflowTrigger
+ * 
+ */
+export type WorkflowTrigger = Prisma.WorkflowTriggerModel
+/**
+ * Model WorkflowAction
+ * 
+ */
+export type WorkflowAction = Prisma.WorkflowActionModel
+/**
+ * Model IncomingEvent
+ * A verified inbound event. Raw JSON is kept for audit/debugging.
+ */
+export type IncomingEvent = Prisma.IncomingEventModel
+/**
+ * Model EventDispatch
+ * Transactional outbox: committed with the event and its runs; a dispatcher enqueues pending rows.
+ */
+export type EventDispatch = Prisma.EventDispatchModel
+/**
+ * Model WorkflowRun
+ * 
+ */
+export type WorkflowRun = Prisma.WorkflowRunModel
+/**
+ * Model ActionRun
+ * Durable state of one action within one run: the action-level idempotency key.
+ */
+export type ActionRun = Prisma.ActionRunModel
+/**
+ * Model ExecutionLog
+ * 
+ */
+export type ExecutionLog = Prisma.ExecutionLogModel
+/**
+ * Model DeadLetterEvent
+ * Persistent record of a run whose retries were exhausted or that failed permanently.
+ */
+export type DeadLetterEvent = Prisma.DeadLetterEventModel
+/**
+ * Model MockCustomer
+ * Mock CRM customer. Upserted by (organizationId, provider, customerExternalId).
+ */
+export type MockCustomer = Prisma.MockCustomerModel
+/**
+ * Model MockSheetRow
+ * Mock spreadsheet row. One row per (organization, sheet action, order), so retries never append twice.
+ */
+export type MockSheetRow = Prisma.MockSheetRowModel
+/**
+ * Model ImportedRecord
+ * Normalized public/synthetic demo data with provenance.
+ */
+export type ImportedRecord = Prisma.ImportedRecordModel
+/**
+ * Model AuditLog
+ * 
+ */
+export type AuditLog = Prisma.AuditLogModel
