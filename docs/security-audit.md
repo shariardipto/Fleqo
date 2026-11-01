@@ -88,7 +88,7 @@ No dependency upgrades were needed; no breaking upgrades were applied.
 ## 7. Residual risks and recommendations
 | Risk | Severity | Recommendation |
 | --- | --- | --- |
-| Email addresses are not verified (no email provider in the MVP). Anyone can register an unused address; a later real owner of that address cannot sign up. **No longer grants organization access.** | Medium | Add an email provider, enable `requireEmailVerification`, and set `requireEmailVerificationOnInvitation: true` |
+| Email addresses are not verified **until an email provider is configured**. Without it, anyone can register an unused address; a later real owner of that address cannot sign up. **No longer grants organization access.** | Medium → Low once enabled | Implemented (§9): configure Resend and set `REQUIRE_EMAIL_VERIFICATION=true` (this also requires verification for invitations) |
 | Rate limits (express-rate-limit, Better Auth) are in-memory per API instance. | Low (single instance) | Before scaling the API horizontally, use a Redis store (`rate-limit-redis`) and Better Auth `secondaryStorage` |
 | Direct requests to the Railway API domain bypass Vercel. `X-Forwarded-For` could then be spoofed toward the IP-based limits. | Low | Keep `TRUST_PROXY` exact. Optionally block non-webhook paths on the public API domain, or give webhooks their own domain |
 | CSP allows `'unsafe-inline'` scripts (Next.js/next-themes inline scripts). | Low | Move to a nonce-based CSP via Next.js middleware |
@@ -117,3 +117,17 @@ Scope: the new OAuth sign-in (`apps/api/src/lib/social-providers.ts`, `lib/auth.
 | Headers | Production CSP/HSTS/Permissions-Policy unchanged and applied to the new routes; no new third-party origins (fonts self-hosted, screenshots local) | Verified — production build with CSP; console guard reports no CSP violations |
 
 No new dependencies at runtime (`@axe-core/playwright` is a dev dependency). `npm audit --omit=dev` → **0** vulnerabilities after v1.1.
+
+## 9. Addendum — CI, Railway and email (2026-11-01)
+| Area | Change | Evidence |
+| --- | --- | --- |
+| Supply chain (CI) | GitHub Actions moved from v4 (Node 20, deprecated) to `actions/checkout`, `setup-node` and `upload-artifact` **v7** (Node 24); runners pinned to `ubuntu-24.04`. Workflow permissions stay `contents: read`; secrets are still generated per run | GitHub run 41290735002: three jobs green, no annotations; actionlint 1.7.12 clean |
+| Deployment config | Railway Config as Code replaced by Infrastructure as Code (`.railway/railway.ts`). The file holds **no secrets**: shared variables (`ctx.shared`) and `preserve()` keep values in Railway, where they should be sealed. Type-checked against the official SDK in CI | `npm run railway:check`; a negative test confirmed misspelled keys fail |
+| Dependency | `railway@3.16.0` added as a **dev** dependency only (DSL types; the IaC engine runs in the Railway CLI). Not in the API image | `npm audit --omit=dev` 0 vulnerabilities |
+| Email verification | Optional `requireEmailVerification`: no session before the emailed link; sign-up for an existing address returns a look-alike response and notifies the owner (no enumeration); invitations also require verification | `email-auth.test.ts` (8 tests); browser flow run locally |
+| Password reset | Single-use token (1 h), `revokeSessionsOnPasswordReset`, same response for unknown addresses, emails sent after the response (no timing oracle), `redirectTo` validated (off-site → 403) | `email-auth.test.ts`, `password-reset.spec.ts` |
+| Abuse limits | Better Auth custom rate limits in production: 3/min per IP for `/request-password-reset` and `/send-verification-email` | Configuration review (rate limits are disabled in test mode) |
+| Email transport | Resend over HTTPS, key server-side only; failed sends log the status only (the message holds a token); `log`/`file` transports refused in production; inconsistent settings refused at startup | `emailConfigProblems` unit test; production guard |
+| Redis on Railway | ioredis `family: 0` (dual-stack DNS) so the private network works in IPv6-only environments | API suite 66/66 locally with the change; CI green |
+
+New residual items: no real email has been sent (no Resend account or domain yet), so deliverability (SPF/DKIM/DMARC) is unverified, and Railway `plan`/`apply` has not been run (needs the CLI login and approval).

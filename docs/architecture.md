@@ -289,8 +289,8 @@ These notes describe the system as built. Each one names its code location and t
 | Process | Entry point | Local | Production |
 | --- | --- | --- | --- |
 | Web | `apps/web` (Next.js 16) | `npm run dev:web` (:3000) | Vercel, root `apps/web`, `API_URL` → API |
-| API | `apps/api/src/server.ts` → `createApp()` in `src/app.ts` | `npm run dev:api` (:4000) | Railway, `deploy/railway/api.json`, pre-deploy `prisma migrate deploy`, health `/api/ready` |
-| Worker + dispatcher | `apps/api/src/worker.ts` | `npm run dev:worker` | Railway, `deploy/railway/worker.json`, `node dist/worker.js` |
+| API | `apps/api/src/server.ts` → `createApp()` in `src/app.ts` | `npm run dev:api` (:4000) | Railway service `fleqo-api` in `.railway/railway.ts` (IaC), pre-deploy `prisma migrate deploy`, health `/api/ready` |
+| Worker + dispatcher | `apps/api/src/worker.ts` | `npm run dev:worker` | Railway service `fleqo-worker` in `.railway/railway.ts`, `node dist/worker.js` |
 
 Both Railway services build from `apps/api/Dockerfile`. The image was built and run in production mode locally, and the smoke test passed against it; nothing has been deployed live.
 

@@ -21,7 +21,7 @@ All results below come from real runs on 2026-10-31/11-01 on the developer machi
 | `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code` | `No difference detected.` (exit 0) |
 | `actionlint 1.7.7` on `.github/workflows/ci.yml` | exit 0 |
 | `shellcheck v0.10.0 -S warning scripts/reliability-check.sh` | exit 0 (after fixing two SC2155 warnings) |
-| Railway configs vs `https://backboard.railway.app/railway.schema.json` | no unknown keys; `preDeployCommand` uses the ≤ 1-item array form |
+| Railway configs vs `https://backboard.railway.app/railway.schema.json` | no unknown keys; `preDeployCommand` uses the ≤ 1-item array form (superseded: Railway Config as Code is deprecated; see §10.4) |
 | `npm audit --omit=dev` / `npm audit` | 0 / 0 vulnerabilities |
 
 ## 2. API unit and integration tests (`npm test`)
@@ -171,3 +171,44 @@ New file `social-auth.test.ts` (7 tests; Google's token endpoint is stubbed, eve
 | Live Google / GitHub sign-in | No OAuth credentials were provided. Status: **configured but not live-verified** ([social-auth.md §1](./social-auth.md#1-provider-status)) |
 | Apple, X | Blocked on paid/developer accounts and an HTTPS domain; hidden in the UI while unconfigured |
 | Screen-reader walkthrough (NVDA/VoiceOver) | Not available in this environment; covered by axe + keyboard tests only |
+
+---
+
+## 10. CI fix, Railway IaC and email (2026-11-01)
+
+### 10.1 GitHub Actions failure: reproduced and fixed
+| Step | Result |
+| --- | --- |
+| Failing runs | `be52ddd` and `0b6f92d`: job *Lint, typecheck…* failed at `npm run typecheck` with `src/app/layout.tsx(33,50): error TS2304: Cannot find name 'LayoutProps'`. Annotations also showed a Node 20 deprecation warning (checkout/setup-node/upload-artifact v4) and an `ubuntu-latest` → Ubuntu 26 notice |
+| Reproduction | Fresh `git clone` of `0b6f92d`, `npm ci` without `NODE_ENV`, `npm run typecheck` → **same error** |
+| Cause | `LayoutProps` is a global type that Next.js generates into `.next/types/routes.d.ts`, imported by the generated `next-env.d.ts`. Both are gitignored build outputs: present on a developer machine, absent in CI, where typecheck runs before the build |
+| Fix | Web `typecheck` runs `next typegen && tsc --noEmit` (Next 16's type generator, about 1 s) |
+| Also fixed | Actions v4 → **v7** (Node 24); runners pinned to `ubuntu-24.04`; E2E now starts the compiled API/worker, because the two dev scripts ran `prisma generate` concurrently (on Windows the worker died on a file lock; on Linux it is a race). Until this fix the E2E/smoke part of the job had never run on GitHub, because typecheck failed first |
+| Validation | `actionlint 1.7.12`: clean |
+| **GitHub run 41290735002 (`4f81a18`)** | **success**: verify 4.4 min, reliability 1.5 min, docker 0.7 min, all on `ubuntu-24.04`, **no annotations** |
+
+### 10.2 Clean-clone CI runs (the verify job's exact steps, throwaway PostgreSQL 18 / Redis 8)
+| Run | Result |
+| --- | --- |
+| `0b6f92d` + CI fix | audit 0, migrations, drift guard, lint, typecheck, **66/66** API tests, build, **E2E 22 passed / 3 skipped**, **smoke 13/13** |
+| Working tree (IaC + email, uncommitted) | audit 0, migrations, drift guard, lint, typecheck incl. `railway:check`, **74/74** API tests (12 files, 56.8 s), build, **E2E 23 passed / 3 skipped** (1.7 min), **smoke 13/13** |
+
+The 3 skipped E2E tests are the social sign-in specs; they run only when an OAuth provider is configured (they passed against the isolated stack with fake credentials, §9.3). The second run caught a real bug before it reached GitHub: passing `callbackURL` to `signIn.email` made Better Auth redirect every successful sign-in to `/verify-email`. Sign-in now uses its normal destination; the regression is covered by `password-reset.spec.ts`.
+
+### 10.3 Email verification and password reset
+| Check | Result |
+| --- | --- |
+| `apps/api/test/email-auth.test.ts` | **8/8**: capabilities flags; no session before verification; sign-in blocked (`EMAIL_NOT_VERIFIED`) and link re-sent; link verifies and signs in; tampered link → `/verify-email?error=INVALID_TOKEN`; sign-up for an existing address answers like a new one and emails the owner; reset link works once and revokes other sessions; identical answers for unknown addresses; off-site `redirectTo`/`callbackURL` → 403; configuration validation |
+| `apps/web/e2e/password-reset.spec.ts` | Passed: Forgot password? → email → `/reset-password` → old password refused → new password signs in → reused link shows "This link has expired" |
+| Required-verification browser flow (API with `REQUIRE_EMAIL_VERIFICATION=true`, file transport) | Sign-up → "Check your inbox", `/api/me` 401 → sign-in refused with "Verify your email…" and a new link → the link opens `/verify-email` "Email verified", signed in → Continue → app; `/verify-email?error=TOKEN_EXPIRED` → "This link has expired" |
+| Accessibility | `/forgot-password` and `/reset-password` added to the axe WCAG AA audit (both themes): 0 serious/critical |
+| Real email delivery | **Not executed**: no Resend account, domain or key (owner action, email.md §3) |
+
+### 10.4 Railway Infrastructure as Code
+| Check | Result |
+| --- | --- |
+| Deprecation | Confirmed in Railway's docs on 2026-11-01: Config as Code is deprecated, new services cannot use it, and existing files stop being read on 2026-12-01 |
+| `.railway/railway.ts` | Type-checks against `railway@3.16.0` (`npm run railway:check`, part of `npm run typecheck` and CI). A negative test (misspelled `DATABASE_ULR`, invalid restart policy) failed as expected |
+| Settings parity | Every key of the former `deploy/railway/api.json`/`worker.json` (builder, Dockerfile path, watch paths, start, pre-deploy, healthcheck + timeout, restart policy + retries, draining) is declared with the SDK's typed `build`/`deploy` objects |
+| Redis on Railway's private network | ioredis `family: 0` added; API suite and CI green with it |
+| `railway config plan` / `apply` | **Not executed**: needs the Railway CLI login and your approval (it creates billable resources) |

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2, MailCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -14,9 +14,24 @@ import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { ProviderIcon } from "./provider-icons";
 
-interface AuthProviders {
+export interface AuthProviders {
   emailPassword: boolean;
   providers: { id: "google" | "github" | "apple" | "twitter"; name: string }[];
+  passwordReset: boolean;
+  emailVerification: "required" | "optional" | "off";
+}
+
+export function useAuthProviders() {
+  return useQuery({
+    queryKey: ["auth-providers"],
+    queryFn: () => api<AuthProviders>("/public/auth-providers"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Where the emailed verification link lands; it forwards to `next` once verified. */
+export function verifyEmailCallback(next: string | null) {
+  return next ? `/verify-email?next=${encodeURIComponent(next)}` : "/verify-email";
 }
 
 /** Only same-site relative redirects are honoured after sign-in (no open redirects). */
@@ -41,7 +56,7 @@ function oauthErrorMessage(code: string | null) {
   return OAUTH_ERRORS[code] ?? "Sign-in could not be completed. Please try again or use another method.";
 }
 
-function PasswordInput({
+export function PasswordInput({
   id,
   name,
   autoComplete,
@@ -85,7 +100,7 @@ function PasswordInput({
   );
 }
 
-function FieldError({ id, message }: { id: string; message?: string }) {
+export function FieldError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
   return (
     <p id={id} className="text-xs text-destructive" role="alert">
@@ -121,12 +136,11 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const [error, setError] = useState<string | null>(() => oauthErrorMessage(params.get("error")));
   const [fieldErrors, setFieldErrors] = useState<Errors>({});
   const [pending, setPending] = useState<"email" | string | null>(null);
+  // Set when sign-up succeeded but the account waits for its emailed verification link.
+  const [awaitingVerification, setAwaitingVerification] = useState<string | null>(null);
+  const notice = !isSignUp && params.get("reset") === "success" ? "Your password was changed. Sign in with the new one." : null;
 
-  const providers = useQuery({
-    queryKey: ["auth-providers"],
-    queryFn: () => api<AuthProviders>("/public/auth-providers"),
-    staleTime: 5 * 60_000,
-  });
+  const providers = useAuthProviders();
   const socials = providers.data?.providers ?? [];
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -143,12 +157,24 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
     setError(null);
 
     const result = isSignUp
-      ? await authClient.signUp.email({ email, password, name: String(form.get("name") ?? "").trim() })
-      : await authClient.signIn.email({ email, password });
+      ? await authClient.signUp.email({ email, password, name: String(form.get("name") ?? "").trim(), callbackURL: verifyEmailCallback(next) })
+      : // Better Auth redirects here after a successful sign-in, and uses it as the landing page of the
+        // verification link it re-sends to unverified accounts; both should end in the app.
+        await authClient.signIn.email({ email, password, callbackURL: next ?? "/dashboard" });
 
     if (result.error) {
       setPending(null);
-      setError(result.error.message ?? "Authentication failed");
+      setError(
+        result.error.code === "EMAIL_NOT_VERIFIED"
+          ? `Verify your email to sign in. We sent a new link to ${email}; it expires in 24 hours.`
+          : (result.error.message ?? "Authentication failed"),
+      );
+      return;
+    }
+    // Required verification: the account exists but has no session until the emailed link is opened.
+    if (isSignUp && !result.data?.token) {
+      setPending(null);
+      setAwaitingVerification(email);
       return;
     }
     await queryClient.invalidateQueries();
@@ -174,12 +200,23 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
 
   const busy = pending !== null;
 
+  if (awaitingVerification) {
+    return <CheckInbox email={awaitingVerification} callbackURL={verifyEmailCallback(next)} onUseAnother={() => setAwaitingVerification(null)} />;
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold tracking-tight">{isSignUp ? "Create your Fleqo account" : "Welcome back"}</h1>
       <p className="mt-1.5 text-sm text-muted-foreground">
         {isSignUp ? "Automate order sync in minutes. No credit card, no real integrations needed." : "Sign in to monitor and manage your workflows."}
       </p>
+
+      {notice && !error && (
+        <Alert className="mt-6" role="status">
+          <CheckCircle2 className="text-success" />
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      )}
 
       {error && (
         <Alert variant="destructive" className="mt-6" role="alert">
@@ -219,7 +256,14 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
           <FieldError id="email-error" message={fieldErrors.email} />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="password">Password</Label>
+            {!isSignUp && providers.data?.passwordReset && (
+              <Link href="/forgot-password" className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+                Forgot password?
+              </Link>
+            )}
+          </div>
           <PasswordInput
             id="password"
             name="password"
@@ -286,6 +330,49 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         {isSignUp ? "Already have an account? " : "New to Fleqo? "}
         <Link className="font-medium text-foreground underline-offset-4 hover:underline" href={`${isSignUp ? "/sign-in" : "/sign-up"}${nextQuery}`}>
           {isSignUp ? "Sign in" : "Create an account"}
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+/** Shown after sign-up when the address must be verified before the first sign-in. */
+function CheckInbox({ email, callbackURL, onUseAnother }: { email: string; callbackURL: string; onUseAnother: () => void }) {
+  const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+
+  async function resend() {
+    setState("sending");
+    const { error } = await authClient.sendVerificationEmail({ email, callbackURL });
+    setState(error ? "error" : "sent");
+  }
+
+  return (
+    <div>
+      <span className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <MailCheck className="size-5" aria-hidden />
+      </span>
+      <h1 className="mt-5 text-2xl font-semibold tracking-tight">Check your inbox</h1>
+      <p className="mt-1.5 text-sm text-muted-foreground">
+        We sent a verification link to <span className="font-medium text-foreground">{email}</span>. Open it to finish creating your
+        account. The link expires in 24 hours.
+      </p>
+      <div role="status" aria-live="polite" className="mt-4 min-h-5 text-sm">
+        {state === "sent" && <p className="text-success">A new link is on its way.</p>}
+        {state === "error" && <p className="text-destructive">We could not send another email right now. Wait a minute and try again.</p>}
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <Button variant="outline" size="lg" onClick={resend} disabled={state === "sending"}>
+          {state === "sending" && <Loader2 className="animate-spin" />}
+          Resend email
+        </Button>
+        <Button variant="ghost" size="lg" onClick={onUseAnother}>
+          Use a different email
+        </Button>
+      </div>
+      <p className="mt-8 text-center text-sm text-muted-foreground">
+        Already verified?{" "}
+        <Link className="font-medium text-foreground underline-offset-4 hover:underline" href="/sign-in">
+          Sign in
         </Link>
       </p>
     </div>

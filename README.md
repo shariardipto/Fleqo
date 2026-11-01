@@ -4,7 +4,7 @@
 
 > **MVP scope.** The store, CRM and spreadsheet are **PostgreSQL-backed mock integrations**, not real Shopify / CRM / Google Sheets connections. Demo inputs come from the public [DummyJSON](https://dummyjson.com/docs) API or an offline synthetic generator, and every generated order is labelled synthetic. No paid API is required.
 
-> **v1.1 (2026-11-01):** public landing page with an in-browser product demo, `/docs`, redesigned sign-in/sign-up with optional Google, GitHub, Apple and X sign-in (configured per environment; **not live-verified** without provider credentials), and a one-click light/dark theme across the whole app, a theme-matched logo and favicon, and a "Workflow Automation v1.1" release label in the app sidebar. Verified locally: lint, typecheck, 66 API tests, 25 browser tests (including axe WCAG AA in light and dark). See [docs/landing-page.md](docs/landing-page.md), [docs/social-auth.md](docs/social-auth.md) and [docs/theme-architecture.md](docs/theme-architecture.md).
+> **v1.1 (2026-11-01):** public landing page with an in-browser product demo, `/docs`, redesigned sign-in/sign-up with optional Google, GitHub, Apple and X sign-in (configured per environment; **not live-verified** without provider credentials), and a one-click light/dark theme across the whole app, a theme-matched logo and favicon, and a "Workflow Automation v1.1" release label in the app sidebar. Verified: lint, typecheck, 74 API tests, 26 browser tests (including axe WCAG AA in light and dark and the email password-reset flow); GitHub Actions green. Optional email verification and password reset ([docs/email.md](docs/email.md)) and Railway Infrastructure as Code ([`.railway/railway.ts`](.railway/railway.ts)). See [docs/landing-page.md](docs/landing-page.md), [docs/social-auth.md](docs/social-auth.md) and [docs/theme-architecture.md](docs/theme-architecture.md).
 >
 > **Release status (v1.0, 2026-11-01): release-ready locally, not deployed.** Everything locally executable is verified (lint, typecheck, 59 API tests, 100-event batch, 5 browser tests, an 8-scenario reliability script, and the production Docker image with smoke tests). Live deployment is waiting for cloud credentials and approval. See [docs/release-audit.md](docs/release-audit.md), [docs/security-audit.md](docs/security-audit.md), [docs/production-test-results.md](docs/production-test-results.md) and [docs/deployment.md](docs/deployment.md).
 
@@ -28,7 +28,7 @@ Mock Store ──signed order.created──▶ Express API ──outbox──▶
 
 ## Features
 - **Public website** — landing page at `/` (hero, interactive in-browser demo, features, how it works, integrations, real product screenshots, security), plus `/docs`. Signed-in visitors get **Go to Dashboard**.
-- **Accounts and organizations** — Better Auth email/password, plus optional Google / GitHub / Apple / X sign-in (shown only when configured, with safe account linking); organizations with **Owner / Admin / Member** roles (Better Auth Organization plugin). Membership and role are re-checked server-side on every request. Teammates join through **invite links**; invitations are never discoverable by email.
+- **Accounts and organizations** — Better Auth email/password with optional email verification and password reset, plus optional Google / GitHub / Apple / X sign-in (shown only when configured, with safe account linking); organizations with **Owner / Admin / Member** roles (Better Auth Organization plugin). Membership and role are re-checked server-side on every request. Teammates join through **invite links**; invitations are never discoverable by email.
 - **Connections** — `mock_store`, `mock_crm`, `mock_sheet` per organization. The store's webhook signing secret is AES-256-GCM encrypted at rest and shown once.
 - **Guided workflow builder** — `mock_store.order.created` → `mock_crm.upsert_customer` → `mock_sheet.append_order`, with type-checked field mapping, enable/disable and archive.
 - **Signed webhook receiver** — HMAC-SHA256 over the raw body, 5-minute replay window, Zod validation, tenant resolved only from the verified connection.
@@ -111,8 +111,8 @@ All numbers below come from runs on 2026-10-31/11-01 on a Windows 11 developer m
 
 | Suite | Command | Result |
 | --- | --- | --- |
-| API unit + integration + security + social sign-in | `npm test` | **11 files, 66 tests passed** (49.8 s) |
-| E2E (Chromium, desktop + Pixel 7, CSP on, console-error guard): app flows, landing, theme, social sign-in, axe WCAG AA in both themes | `npm run test:e2e` | **25 passed** (1.6 min) |
+| API unit + integration + security + social sign-in + email | `npm test` | **12 files, 74 tests passed** (56.8 s) |
+| E2E (Chromium, desktop + Pixel 7, CSP on, console-error guard): app flows, landing, theme, password reset by email, social sign-in, axe WCAG AA in both themes | `npm run test:e2e` | **23 passed, 3 skipped** (1.7 min; the 3 social sign-in specs run only when an OAuth provider is configured) |
 | Process-level reliability (8 scenarios) | `npm run test:reliability` | **all passed** — 32/32 runs, 0 duplicate rows, CRM never repeated, 0 dead letters |
 | Smoke vs production Docker image (725 MB) | `npm run smoke -- --base-url http://localhost:4700 --origin http://localhost:3000` | **13/13** |
 | Typecheck / lint / build / `npm audit` | | all exit 0; 0 vulnerabilities |
@@ -158,6 +158,8 @@ All numbers below come from runs on 2026-10-31/11-01 on a Windows 11 developer m
 
 Social sign-in (API, optional): `GOOGLE_CLIENT_ID`/`_SECRET`, `GITHUB_CLIENT_ID`/`_SECRET`, `APPLE_CLIENT_ID`/`_SECRET` (+ `APPLE_APP_BUNDLE_IDENTIFIER`), `TWITTER_CLIENT_ID`/`_SECRET`. A provider is enabled only when both values are set; redirect URI `<BETTER_AUTH_URL>/api/auth/callback/<provider>`. Setup: [docs/social-auth.md](docs/social-auth.md).
 
+Email (API, optional): `EMAIL_PROVIDER` (`resend` in production; `log`/`file` locally), `EMAIL_FROM`, `RESEND_API_KEY`, `REQUIRE_EMAIL_VERIFICATION`. Without a provider no email is sent and "Forgot password?" is hidden. Setup: [docs/email.md](docs/email.md).
+
 With `NODE_ENV=production` the API and worker **refuse to start** if `BETTER_AUTH_URL`/`WEB_ORIGINS` are not HTTPS (localhost excepted) or if `NODE_TLS_REJECT_UNAUTHORIZED=0` is set. Production templates: [`deploy/env/`](deploy/env/).
 
 ## Deployment
@@ -168,8 +170,8 @@ Target: **Vercel** (web) + **Railway** (API and worker as two services from one 
 
 **Full guide: [docs/deployment.md](docs/deployment.md)** — Railway services, managed PostgreSQL and Redis (`noeviction`), migrations safety, health checks, logging, backups, rollback and the live verification checklist. In short:
 
-1. **Railway `fleqo-api`** — config `deploy/railway/api.json` (Dockerfile `apps/api/Dockerfile`, pre-deploy `npx prisma migrate deploy`, health check `/api/ready`). Variables from [`deploy/env/api.production.env.example`](deploy/env/api.production.env.example).
-2. **Railway `fleqo-worker`** — config `deploy/railway/worker.json` (`node dist/worker.js`, draining 30 s). Same secrets and origins as the API; no public domain.
+1. **Railway, as Infrastructure as Code** — [`.railway/railway.ts`](.railway/railway.ts) declares PostgreSQL, Redis, `fleqo-api` (Dockerfile `apps/api/Dockerfile`, pre-deploy `npx prisma migrate deploy`, health check `/api/ready`) and `fleqo-worker` (`node dist/worker.js`, draining 30 s). Apply it with `railway config plan` / `railway config apply` (CLI ≥ 5.42.1); CI type-checks it. Railway's older Config as Code (`railway.json`) is deprecated and stops working on 2026-12-01. Secrets and origins are Railway shared variables, never in the file; variable reference: [`deploy/env/`](deploy/env/).
+2. **Optional**: Google/GitHub sign-in (exact callback URLs in [docs/deployment.md §3.5](docs/deployment.md#35-google-and-github-sign-in-optional)) and email verification / password reset via Resend ([docs/email.md](docs/email.md)).
 3. **Vercel** — root `apps/web`, framework Next.js, `API_URL=https://<railway-api-domain>` (build time). Browsers only talk to the Vercel origin and `/api/*` is proxied, so auth cookies are first-party.
 4. **Verify** — `npm run smoke -- --base-url https://<vercel-domain>`, `E2E_BASE_URL=https://<vercel-domain> npm run test:e2e`, then the proxy and cookie checks in deployment.md §8.
 
@@ -178,7 +180,7 @@ CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) has three jobs:
 - **reliability** — the process-level script;
 - **docker** — the image build.
 
-Secrets are generated per run. *The workflow is actionlint-clean and every step was run locally, but it has not run on GitHub yet.*
+Secrets are generated per run. The workflow uses Node 24 actions (`checkout`/`setup-node`/`upload-artifact` v7) on pinned `ubuntu-24.04` runners; all three jobs passed on GitHub for commit `4f81a18` ([production-test-results.md §10](docs/production-test-results.md#10-ci-fix-railway-iac-and-email-2026-11-01)).
 
 ## Design decisions and trade-offs
 | Decision | Why | Cost |
@@ -200,7 +202,8 @@ Secrets are generated per run. *The workflow is actionlint-clean and every step 
 - Webhooks: raw-body HMAC-SHA256, constant-time compare, replay window, body limit 64 KB, Zod validation, per-IP rate limit; the tenant comes only from the verified connection.
 - Secrets: Better Auth secret and encryption key only in environment variables; webhook secrets AES-256-GCM encrypted and never returned after creation; pino redacts cookies, authorization and signature headers. Production refuses to start with TLS verification disabled.
 - Browser: same-origin API, `SameSite=Lax` HTTP-only cookies (`Secure` in production), CORS restricted to `WEB_ORIGINS` (no wildcard), Better Auth origin checks **plus** a Fleqo origin check on cookie-authenticated mutations, `Cache-Control: no-store` on API responses, Helmet on the API, and CSP/HSTS/Permissions-Policy on the production web. There is a general API rate limit, and Better Auth's own auth rate limit applies in production.
-- Invitations: accepted only through the invite link (random ID) by the invited address; never listed by email, because email addresses are not verified in the MVP.
+- Invitations: accepted only through the invite link (random ID) by the invited address; never listed by email. With `REQUIRE_EMAIL_VERIFICATION=true`, accepting also requires a verified address.
+- Email verification and password reset (when an email provider is configured): no account enumeration (identical responses, emails sent after the response), single-use reset links that sign out every session, 24 h verification links, 3 requests/min per IP on the email endpoints. See [docs/email.md](docs/email.md).
 - Social sign-in: OAuth `state` + PKCE, callback URLs restricted to trusted origins (enforced even in tests), secrets server-side only, and **no implicit linking into unverified local accounts** (prevents account pre-hijacking).
 - Full review against OWASP Top 10, with residual risks: [docs/security-audit.md](docs/security-audit.md).
 - Outbound requests go only to fixed DummyJSON endpoints; no user-supplied URL is ever fetched.
@@ -209,9 +212,9 @@ Secrets are generated per run. *The workflow is actionlint-clean and every step 
 ## Known limitations
 - **Not deployed** (no credentials or approval provided) — see [Deployment](#deployment).
 - Mock integrations only: no real Shopify, CRM or Google Sheets OAuth (explicitly out of MVP scope).
-- Invitations are not emailed and email addresses are not verified (no email provider in the MVP). Inviters share the invite link themselves. A verification design is in [docs/social-auth.md §7](docs/social-auth.md#7-email-verification--proposal).
+- Invitations are not emailed; inviters share the invite link themselves.
+- Email verification and password reset are implemented but **off until an email provider (Resend) is configured**; no sending domain or API key was available, so no real email has been sent ([docs/email.md](docs/email.md)).
 - Social providers are implemented but **not live-verified**: no Google/GitHub/Apple/X credentials were available. Apple requires a paid developer account and an HTTPS domain; X requires an X developer app with email permission.
-- No password reset yet (needs an email provider); the "Forgot password?" link is intentionally absent.
 - One connection per mock provider per organization; one trigger type and two action types.
 - Rate limits are in-memory per API instance; use a Redis store before running several API replicas.
 - The API/worker image is 725 MB, mostly the Prisma CLI kept for the release-step migration; a separate migrator image would shrink it further.
@@ -235,10 +238,10 @@ apps/
   web/                    Next.js 16 App Router + shadcn/ui + TanStack Query
     src/app/(auth) (app) invite/ onboarding/   pages · src/components · src/features · src/lib
     e2e/                  Playwright specs + console-error guard fixture
-deploy/railway/           api.json, worker.json (Railway config-as-code)
+.railway/                 railway.ts — Railway Infrastructure as Code (project, databases, API, worker)
 deploy/env/               production environment templates (placeholders only)
 scripts/                  reliability-check.sh (process-level fault injection)
 docs/                     requirements, architecture, ERD, API/UI specs, release & security audits,
-                          production test results, deployment guide, landing page, theme, social auth, progress log
+                          production test results, deployment guide, landing page, theme, social auth, email, progress log
 compose.yaml              PostgreSQL 18 + Redis 8 for local development
 ```

@@ -344,3 +344,39 @@ README, `landing-page.md`, `theme-architecture.md`, `social-auth.md` (new); `sec
 1. OAuth credentials (Google first) to run the live checklist in [social-auth.md §6](./social-auth.md#6-live-verification-checklist-needs-real-credentials); until then no provider is marked verified.
 2. An email provider for verification and password reset (proposal in social-auth.md §7).
 3. Earlier items still open: `git rm -r --cached apps/api/src/generated`, the agent-environment `NODE_TLS_REJECT_UNAUTHORIZED=0`, deployment approval (R6).
+
+---
+
+# v1.1 follow-up: green CI, Railway IaC, OAuth and email (2026-11-01)
+
+Owner brief: fix the failing GitHub Actions run (`Cannot find name 'LayoutProps'` on `0b6f92d`), update outdated Actions, migrate off Railway's deprecated Config as Code, validate the production templates, prepare Google/GitHub OAuth and secure email verification + password reset, and record results. No history rewrite, no secrets, no paid resources without approval.
+
+## CI (first priority): done and green on GitHub
+- Reproduced in a fresh clone. Cause: Next's generated route types (`LayoutProps`) only exist after `next typegen`/build. Fix: `"typecheck": "next typegen && tsc --noEmit"`.
+- Actions v4 → v7 (Node 24), runners pinned to `ubuntu-24.04`, E2E uses the compiled API/worker (the dev scripts raced on `prisma generate`).
+- With the owner's approval, pushed as `4f81a18` (the owner chose `git add .` and the message). Run 41290735002: all three jobs **success**, no annotations.
+
+## Railway: Infrastructure as Code
+- Railway's docs confirm the deprecation (new services cannot use Config as Code; hard cutoff 2026-12-01). Added `.railway/railway.ts` (PostgreSQL, Redis, `fleqo-api`, `fleqo-worker`) using the official `railway@3.16.0` SDK as a dev dependency, type-checked in CI (`npm run railway:check`). Removed `deploy/railway/*.json`.
+- Secrets stay out of Git: shared variables for the values both services need, `preserve()` for API-only secrets. The env templates mirror the file for dashboard-only setups.
+- Redis: ioredis `family: 0` for Railway's IPv6-only private networks.
+- Not executed: `railway config plan/apply` (needs the CLI login and approval).
+
+## OAuth preparation
+- Exact production values (origins and callback URLs on the web origin) in deployment.md §3.5 and social-auth.md §8. No credentials invented; providers remain "configured but not live-verified".
+
+## Email verification and password reset
+- `lib/mailer.ts` (Resend over HTTPS; `log`/`file` for local use and tests only, refused in production), `lib/emails.ts` templates, Better Auth wiring (`requireEmailVerification` behind `REQUIRE_EMAIL_VERIFICATION`, single-use reset with session revocation, owner notice on duplicate sign-up, invitation verification, 3/min rate limits).
+- Web: "Forgot password?" (only when emails can be sent), `/forgot-password`, `/reset-password`, `/verify-email`, "Check your inbox" after sign-up, a clear message for unverified sign-ins.
+- Tests: `email-auth.test.ts` (8), `password-reset.spec.ts`, two pages added to the axe audit; the required-verification browser flow was run locally. A clean-clone run caught one regression before it was pushed (sign-in redirect via `callbackURL`), now fixed.
+- Off by default; no real email sent (needs a Resend domain and key).
+
+## Results
+API **74/74** (12 files), E2E **23 passed + 3 skipped** in the CI configuration, smoke **13/13**, lint/typecheck/audit clean. Details: [production-test-results.md §10](./production-test-results.md#10-ci-fix-railway-iac-and-email-2026-11-01).
+
+## Open items for the owner
+1. Commit and push the uncommitted IaC + email + docs work (CI will verify it).
+2. Railway: CLI ≥ 5.42.1, `railway link`, shared variables, `railway config plan` → approve → `apply`; generate the API domain; Vercel `API_URL`/`NEXT_PUBLIC_SITE_URL`.
+3. Google/GitHub OAuth apps with the exact URLs in social-auth.md §8, then the live checklist.
+4. Resend: verify a sending domain (SPF/DKIM/DMARC), create a sending-only key, test a reset email, then `REQUIRE_EMAIL_VERIFICATION=true`.
+5. Still open: `git rm -r --cached apps/api/src/generated` (the generated Prisma client is tracked although gitignored).

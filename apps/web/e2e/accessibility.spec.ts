@@ -15,7 +15,7 @@ for (const scheme of ["light", "dark"] as const) {
   test(`public pages pass WCAG AA checks in ${scheme} mode`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
     const findings: string[] = [];
-    for (const path of ["/", "/docs", "/sign-in", "/sign-up"]) {
+    for (const path of ["/", "/docs", "/sign-in", "/sign-up", "/forgot-password", "/reset-password"]) {
       await page.goto(path);
       await audit(page, path, findings);
     }

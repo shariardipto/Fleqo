@@ -44,6 +44,15 @@ const envSchema = z.object({
   TWITTER_CLIENT_ID: z.string().min(1).optional(),
   TWITTER_CLIENT_SECRET: z.string().min(1).optional(),
 
+  // Email (optional). Enables verification and password-reset emails. `resend` is the only
+  // production transport; `log` (prints messages) and `file` (writes JSON, for E2E) are for local use.
+  EMAIL_PROVIDER: z.enum(["resend", "log", "file"]).optional(),
+  EMAIL_FROM: z.string().min(3).optional(),
+  RESEND_API_KEY: z.string().min(1).optional(),
+  EMAIL_FILE_DIR: z.string().min(1).default("tmp/emails"),
+  // Public registration: no session until the address is verified. Needs an email provider.
+  REQUIRE_EMAIL_VERIFICATION: z.stringbool().default(false),
+
   WEBHOOK_TOLERANCE_SECONDS: z.coerce.number().int().positive().default(300),
   WORKFLOW_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(4),
   WORKFLOW_BACKOFF_MS: z.coerce.number().int().min(10).default(2000),
@@ -70,6 +79,20 @@ function productionProblems(data: Env): string[] {
   if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0") {
     problems.push("NODE_TLS_REJECT_UNAUTHORIZED=0 disables TLS certificate verification; remove it in production");
   }
+  if (data.EMAIL_PROVIDER && data.EMAIL_PROVIDER !== "resend") {
+    problems.push(`EMAIL_PROVIDER=${data.EMAIL_PROVIDER} would expose verification and reset links; use resend in production`);
+  }
+  return problems;
+}
+
+/** Email settings that cannot work together; checked in every environment. */
+export function emailConfigProblems(data: Pick<Env, "EMAIL_PROVIDER" | "EMAIL_FROM" | "RESEND_API_KEY" | "REQUIRE_EMAIL_VERIFICATION">): string[] {
+  const problems: string[] = [];
+  if (data.EMAIL_PROVIDER && !data.EMAIL_FROM) problems.push("EMAIL_FROM is required when EMAIL_PROVIDER is set");
+  if (data.EMAIL_PROVIDER === "resend" && !data.RESEND_API_KEY) problems.push("RESEND_API_KEY is required for EMAIL_PROVIDER=resend");
+  if (data.REQUIRE_EMAIL_VERIFICATION && !data.EMAIL_PROVIDER) {
+    problems.push("REQUIRE_EMAIL_VERIFICATION=true needs EMAIL_PROVIDER, otherwise nobody can finish signing up");
+  }
   return problems;
 }
 
@@ -91,6 +114,8 @@ function loadEnv(): Env {
   if (halfConfigured.length > 0) {
     throw new Error(`Incomplete OAuth configuration: set both ${halfConfigured.map((pair) => pair.join(" and ")).join("; ")}`);
   }
+  const emailProblems = emailConfigProblems(parsed.data);
+  if (emailProblems.length > 0) throw new Error(`Invalid email configuration:\n${emailProblems.map((p) => `  - ${p}`).join("\n")}`);
   if (parsed.data.NODE_ENV === "production") {
     const problems = productionProblems(parsed.data);
     if (problems.length > 0) throw new Error(`Unsafe production configuration:\n${problems.map((p) => `  - ${p}`).join("\n")}`);

@@ -72,6 +72,8 @@ describe("social sign-in (Better Auth OAuth)", () => {
         { id: "google", name: "Google" },
         { id: "github", name: "GitHub" },
       ],
+      passwordReset: false,
+      emailVerification: "off",
     });
     expect(JSON.stringify(res.body)).not.toContain("secret");
   });

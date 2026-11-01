@@ -12,3 +12,5 @@ apps/api/src/generated/
 .env.*
 !.env.example
 .claude
+# Emails written by EMAIL_PROVIDER=file (tests/E2E); they contain sign-in tokens
+tmp/

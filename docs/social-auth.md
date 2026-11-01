@@ -27,7 +27,7 @@ Email/password sign-in is unchanged. Social providers are **optional** and appea
 | Client secrets | Server env only; the browser gets provider IDs and names from `/api/public/auth-providers`. Half-configured providers (ID without secret) stop the API at startup |
 | CSRF / login CSRF | OAuth `state` + PKCE (S256), Better Auth origin checks, SameSite=Lax HttpOnly cookies |
 | Open redirects | `callbackURL`, `newUserCallbackURL` and `errorCallbackURL` must be relative or trusted-origin. Fleqo sets `advanced.disableOriginCheck: false`, so this also holds in test runs (Better Auth skips it in test environments by default) |
-| Account takeover via linking | `accountLinking: { requireLocalEmailVerified: true, trustedProviders: [], allowDifferentEmails: false }`. A social identity is merged into an existing account only when the provider says the email is verified **and** the local account's email is verified. Email/password accounts are unverified in the MVP, so a pre-registered account (possibly an attacker's) can never capture someone's Google/GitHub/Apple/X identity. The user is told to sign in with their password instead. Proven by `apps/api/test/social-auth.test.ts` |
+| Account takeover via linking | `accountLinking: { requireLocalEmailVerified: true, trustedProviders: [], allowDifferentEmails: false }`. A social identity is merged into an existing account only when the provider says the email is verified **and** the local account's email is verified. Email/password accounts stay unverified unless email verification is enabled ([email.md](./email.md)), so a pre-registered account (possibly an attacker's) can never capture someone's Google/GitHub/Apple/X identity. The user is told to sign in with their password instead. Proven by `apps/api/test/social-auth.test.ts` |
 | Unverified provider emails | GitHub uses only a verified primary email. X marks email verified only for `confirmed_email`. Google and Apple use the `email_verified` claim |
 | Apple form POST | `https://appleid.apple.com` is added to `trustedOrigins` only when Apple is configured; Better Auth converts the POST callback to a GET internally |
 | Sessions, tenant isolation, CSRF on the app API | Unchanged: social sessions are ordinary Better Auth sessions; Fleqo's origin check and RBAC apply as before |
@@ -84,12 +84,21 @@ For each configured provider, in a browser:
 6. Invite-link flow: open an invite link signed out → Create account → choose the provider with the invited email → accept the invitation.
 Record the results in `docs/production-test-results.md`.
 
-## 7. Email verification — proposal
-**Current state:** email/password addresses are not verified (no email provider). Mitigations in place: invitations only via invite links, and no implicit account linking into unverified accounts. Social sign-ins carry provider-verified emails.
+## 7. Email verification and password reset
+**Implemented** (2026-11-01) and off until an email provider is configured; see [email.md](./email.md). With `REQUIRE_EMAIL_VERIFICATION=true`, email/password accounts are verified before their first session. A verified account can then be linked to a provider-verified Google/GitHub identity with the same address, while unverified accounts still never link.
 
-**Proposed workflow** (needs an email provider and a sending domain; this is the blocker):
-1. Add a mail transport (e.g. Resend, Postmark or SES) behind a small `sendEmail()` module, with `EMAIL_FROM` and the provider key as env vars. Nothing is sent when they are absent.
-2. Better Auth `emailVerification: { sendVerificationEmail, sendOnSignUp: true, autoSignInAfterVerification: true }`, plus a "Verify your email" banner with a resend button for unverified users.
-3. Development: a `log` transport that prints verification links to the API console (never in production), so local MVP testing keeps working without a provider.
-4. Once production sending is verified, enable `emailAndPassword.requireEmailVerification: true` and organization `requireEmailVerificationOnInvitation: true`. Existing unverified users are asked to verify at next sign-in.
-5. Password reset can reuse the same transport (`sendResetPassword`). The "Forgot password?" link is intentionally **not** shown until then, because recovery is not implemented.
+## 8. Production setup checklist (Google and GitHub)
+No credentials exist yet; nothing below has been created. The exact values to register, for a web origin `https://app.example.com` (replace it with the real `BETTER_AUTH_URL`):
+
+| | Google OAuth client (Web application) | GitHub OAuth App (production) |
+| --- | --- | --- |
+| Origin / homepage | Authorized JavaScript origin `https://app.example.com` | Homepage URL `https://app.example.com` |
+| Callback | Authorized redirect URI `https://app.example.com/api/auth/callback/google` | Authorization callback URL `https://app.example.com/api/auth/callback/github` |
+| Local development (separate entry or app) | `http://localhost:3000` and `http://localhost:3000/api/auth/callback/google` | separate OAuth App with `http://localhost:3000/api/auth/callback/github` |
+| Scopes | `openid`, `email`, `profile` | `read:user`, `user:email` |
+| Railway variables (`fleqo-api`, sealed) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
+
+1. Register as in §5, using the values above.
+2. Set the variables on `fleqo-api` and redeploy. `/sign-in` and `/sign-up` show the buttons only when both values of a pair are present.
+3. Run the live checklist (§6) and record the result. Until then the provider stays "configured but not live-verified".
+4. Google: publish the consent screen (Fleqo requests no sensitive scopes). GitHub: nothing to publish.

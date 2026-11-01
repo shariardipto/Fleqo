@@ -81,6 +81,11 @@ jobs:
       # Runs the output of the build step. The dev scripts would each run `prisma generate` and race
       # on the same generated client, and their file watchers are not needed here.
       - name: Start API, worker and production web
+        env:
+          # The API writes emails to files so E2E can follow reset links (never used in production).
+          EMAIL_PROVIDER: file
+          EMAIL_FROM: Fleqo CI <ci@example.test>
+          EMAIL_FILE_DIR: ${{ runner.temp }}/emails
         run: |
           mkdir -p logs
           nohup npm run start --workspace=apps/api > logs/api.log 2>&1 &
@@ -96,6 +101,7 @@ jobs:
         working-directory: apps/web
         env:
           E2E_BASE_URL: http://localhost:3000
+          E2E_EMAIL_DIR: ${{ runner.temp }}/emails
         run: npm run test:e2e
 
       - name: Smoke test through the web proxy
