@@ -11,8 +11,7 @@
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:worker": "npm run dev:worker --workspace=apps/api",
     "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
-    "typecheck": "npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web && npm run railway:check",
-    "railway:check": "tsc -p .railway/tsconfig.json",
+    "typecheck": "npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web",
     "lint": "npm run lint --workspace=apps/api && npm run lint --workspace=apps/web",
     "test": "npm run test --workspace=apps/api",
     "test:batch": "npm run test:batch --workspace=apps/api",
@@ -35,8 +34,5 @@
   },
   "workspaces": [
     "apps/*"
-  ],
-  "devDependencies": {
-    "railway": "3.16.0"
-  }
+  ]
 }

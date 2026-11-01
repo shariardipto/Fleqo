@@ -96,7 +96,7 @@ No credentials exist yet; nothing below has been created. The exact values to re
 | Callback | Authorized redirect URI `https://app.example.com/api/auth/callback/google` | Authorization callback URL `https://app.example.com/api/auth/callback/github` |
 | Local development (separate entry or app) | `http://localhost:3000` and `http://localhost:3000/api/auth/callback/google` | separate OAuth App with `http://localhost:3000/api/auth/callback/github` |
 | Scopes | `openid`, `email`, `profile` | `read:user`, `user:email` |
-| Railway variables (`fleqo-api`, sealed) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
+| Render variables (`fleqo-api` only) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
 
 1. Register as in §5, using the values above.
 2. Set the variables on `fleqo-api` and redeploy. `/sign-in` and `/sign-up` show the buttons only when both values of a pair are present.

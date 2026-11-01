@@ -380,3 +380,21 @@ API **74/74** (12 files), E2E **23 passed + 3 skipped** in the CI configuration,
 3. Google/GitHub OAuth apps with the exact URLs in social-auth.md §8, then the live checklist.
 4. Resend: verify a sending domain (SPF/DKIM/DMARC), create a sending-only key, test a reset email, then `REQUIRE_EMAIL_VERIFICATION=true`.
 5. Still open: `git rm -r --cached apps/api/src/generated` (the generated Prisma client is tracked although gitignored).
+
+---
+
+# Deployment target: Render + Vercel (2026-11-01)
+
+Owner brief: remove every Railway-specific configuration (the owner will deploy by hand on Render + Vercel), keep the Dockerfile, API, worker, PostgreSQL, Prisma, auth and all functionality, update docs and env examples, verify, and do not deploy, commit, push or touch databases or secrets.
+
+- Removed `.railway/` (IaC file + tsconfig), the `railway` dev dependency and the `railway:check` script (also dropped from `npm run typecheck`, which removes the only Railway check in CI). `package.json` and `package-lock.json` are back to their exact pre-Railway contents.
+- Code: comments only (`redis.ts`, `mailer.ts`, `worker.ts`); the dual-stack Redis lookup stays (harmless on any host).
+- `deploy/env/*.example` and `apps/{api,web}/.env.example` rewritten for Render (an Environment Group `fleqo-shared` for the API and worker; internal Postgres/Key Value URLs; `PORT` set by Render; Vercel `API_URL=https://<name>.onrender.com`).
+- `docs/deployment.md` rewritten for Render + Vercel from Render's docs. It covers the Web Service and Background Worker settings, the Key Value `noeviction` policy, plan limits (no free background workers, pre-deploy only on paid instances, free Postgres expiry, free Key Value not persisted), migration options for free instances, and rollback from the Deploys page. Health check `/api/health` instead of `/api/ready`, because Render's checks are continuous and would pull the API during a Redis outage that the outbox is designed to survive.
+- README, architecture, email, social-auth, AGENTS and requirements updated; release/security audits annotated (history kept).
+- Verified: lint, typecheck, 74/74 API tests (one timing flake on the first run, details in production-test-results.md §11), build, and the Docker image built the way Render will build it. Nothing deployed, committed or pushed.
+
+## Render compatibility review (2026-11-01)
+- Reviewed the Dockerfile, start commands, environment variables, PostgreSQL/Redis connections and the migration process against Render's documented behaviour. Proved it with a local emulation (production image, `PORT=10000`, Render-style internal URLs, PostgreSQL 16, Valkey 8, no internet for the pre-deploy step, smoke 13/13, graceful SIGTERM); see production-test-results.md §12.
+- One deployment issue found and fixed (docs and a Dockerfile comment only): `npx prisma migrate deploy` downloads the newest Prisma release when started outside `/app` (observed: `prisma@8.0.0-rc.29`). The Render Pre-Deploy Command is now `npm run db:deploy` (an existing script that only uses the image's Prisma 7.10.1 and fails loudly if started in the wrong directory).
+- No application code, Dockerfile instruction or dependency changed in this review.

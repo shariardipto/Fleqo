@@ -24,14 +24,14 @@
 
 Startup validation refuses inconsistent settings: a provider without `EMAIL_FROM`, `resend` without a key, `REQUIRE_EMAIL_VERIFICATION=true` without a provider (nobody could finish signing up), and `log`/`file` in production.
 
-**Why Resend over HTTPS, not SMTP:** Railway allows outbound SMTP only on the Pro plan and recommends HTTPS email APIs on every plan. The transport is a single `fetch` call (no new dependency) in `apps/api/src/lib/mailer.ts`. Another HTTPS provider (Postmark, SendGrid, Mailgun) is a ~15-line addition there.
+**Why Resend over HTTPS, not SMTP:** hosting platforms restrict SMTP; Render's free web services cannot send on ports 25, 465 or 587, and port 25 is blocked for every Render service ([Render free instances](https://render.com/docs/free)). HTTPS email APIs work everywhere. The transport is a single `fetch` call (no new dependency) in `apps/api/src/lib/mailer.ts`. Another HTTPS provider (Postmark, SendGrid, Mailgun) is a ~15-line addition there.
 
 ## 3. Setting up Resend (owner)
 1. Create a Resend account and add a sending domain, preferably a subdomain such as `mail.your-domain.com`.
 2. Add the DNS records Resend shows (SPF `TXT`, DKIM `CNAME`/`TXT`, and the MX record for bounces) at your DNS provider. Wait until Resend marks the domain **Verified**. Until then Resend only delivers to your own account address.
 3. Recommended: add a DMARC record (`_dmarc.your-domain.com`, start with `p=none`) so receivers trust the domain.
 4. Create an API key with **Sending access** for that domain only.
-5. On the Railway `fleqo-api` service set `EMAIL_PROVIDER=resend`, `EMAIL_FROM`, `RESEND_API_KEY` (seal it). Keep `REQUIRE_EMAIL_VERIFICATION` unset for now and redeploy.
+5. On the Render `fleqo-api` service set `EMAIL_PROVIDER=resend`, `EMAIL_FROM`, `RESEND_API_KEY`. Keep `REQUIRE_EMAIL_VERIFICATION` unset for now and redeploy.
 6. Test: `/sign-in` now shows **Forgot password?**. Request a reset for your own account, check the email arrives (inbox, not spam), and complete the reset.
 7. Then set `REQUIRE_EMAIL_VERIFICATION=true` and redeploy. Create a throwaway account and finish the verification flow. Record both results in `production-test-results.md`.
 

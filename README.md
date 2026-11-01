@@ -4,7 +4,7 @@
 
 > **MVP scope.** The store, CRM and spreadsheet are **PostgreSQL-backed mock integrations**, not real Shopify / CRM / Google Sheets connections. Demo inputs come from the public [DummyJSON](https://dummyjson.com/docs) API or an offline synthetic generator, and every generated order is labelled synthetic. No paid API is required.
 
-> **v1.1 (2026-11-01):** public landing page with an in-browser product demo, `/docs`, redesigned sign-in/sign-up with optional Google, GitHub, Apple and X sign-in (configured per environment; **not live-verified** without provider credentials), and a one-click light/dark theme across the whole app, a theme-matched logo and favicon, and a "Workflow Automation v1.1" release label in the app sidebar. Verified: lint, typecheck, 74 API tests, 26 browser tests (including axe WCAG AA in light and dark and the email password-reset flow); GitHub Actions green. Optional email verification and password reset ([docs/email.md](docs/email.md)) and Railway Infrastructure as Code ([`.railway/railway.ts`](.railway/railway.ts)). See [docs/landing-page.md](docs/landing-page.md), [docs/social-auth.md](docs/social-auth.md) and [docs/theme-architecture.md](docs/theme-architecture.md).
+> **v1.1 (2026-11-01):** public landing page with an in-browser product demo, `/docs`, redesigned sign-in/sign-up with optional Google, GitHub, Apple and X sign-in (configured per environment; **not live-verified** without provider credentials), and a one-click light/dark theme across the whole app, a theme-matched logo and favicon, and a "Workflow Automation v1.1" release label in the app sidebar. Verified: lint, typecheck, 74 API tests, 26 browser tests (including axe WCAG AA in light and dark and the email password-reset flow); GitHub Actions green. Optional email verification and password reset ([docs/email.md](docs/email.md)) and a Render + Vercel deployment guide ([docs/deployment.md](docs/deployment.md)). See [docs/landing-page.md](docs/landing-page.md), [docs/social-auth.md](docs/social-auth.md) and [docs/theme-architecture.md](docs/theme-architecture.md).
 >
 > **Release status (v1.0, 2026-11-01): release-ready locally, not deployed.** Everything locally executable is verified (lint, typecheck, 59 API tests, 100-event batch, 5 browser tests, an 8-scenario reliability script, and the production Docker image with smoke tests). Live deployment is waiting for cloud credentials and approval. See [docs/release-audit.md](docs/release-audit.md), [docs/security-audit.md](docs/security-audit.md), [docs/production-test-results.md](docs/production-test-results.md) and [docs/deployment.md](docs/deployment.md).
 
@@ -42,11 +42,11 @@ Mock Store ──signed order.created──▶ Express API ──outbox──▶
 ```mermaid
 flowchart LR
   B[Browser] -->|same-origin /api| W[Next.js 16 web<br/>Vercel]
-  W -->|rewrite proxy| A[Express 5 API<br/>Railway]
+  W -->|rewrite proxy| A[Express 5 API<br/>Render web service]
   A --> AUTH[Better Auth + Organization plugin]
   A --> P[(PostgreSQL 18<br/>Prisma 7)]
   A -->|best-effort enqueue| Q[(Redis 8 / BullMQ 6)]
-  WK[Worker + outbox dispatcher<br/>Railway] --> Q
+  WK[Worker + outbox dispatcher<br/>Render background worker] --> Q
   WK --> P
   SIM[Order simulator / external sender] -->|signed POST /api/webhooks/mock-store| A
 ```
@@ -164,15 +164,15 @@ With `NODE_ENV=production` the API and worker **refuse to start** if `BETTER_AUT
 
 ## Deployment
 
-Target: **Vercel** (web) + **Railway** (API and worker as two services from one Docker image) + managed **PostgreSQL** and **Redis** (Railway plugins, Neon, Upstash with TCP/TLS, …).
+Target: **Vercel** (web) + **Render** (API as a Web Service and worker as a Background Worker, both from one Docker image) + **Render Postgres** and **Render Key Value** (Redis-compatible). Deployment is done by hand in the dashboards; the repository contains no hosting-platform config files.
 
 > **Status: not deployed.** The production image (725 MB, non-root) was built and verified locally: migrations on an empty database, production guards, worker health, smoke test 13/13 and graceful SIGTERM. No live deployment was made, because cloud credentials and deployment approval have not been provided. There is no public URL yet.
 
-**Full guide: [docs/deployment.md](docs/deployment.md)** — Railway services, managed PostgreSQL and Redis (`noeviction`), migrations safety, health checks, logging, backups, rollback and the live verification checklist. In short:
+**Full guide: [docs/deployment.md](docs/deployment.md)** — Render services and settings, Postgres and Key Value (`noeviction`), plan limits, migrations safety, health checks, logging, backups, rollback and the live verification checklist. In short:
 
-1. **Railway, as Infrastructure as Code** — [`.railway/railway.ts`](.railway/railway.ts) declares PostgreSQL, Redis, `fleqo-api` (Dockerfile `apps/api/Dockerfile`, pre-deploy `npx prisma migrate deploy`, health check `/api/ready`) and `fleqo-worker` (`node dist/worker.js`, draining 30 s). Apply it with `railway config plan` / `railway config apply` (CLI ≥ 5.42.1); CI type-checks it. Railway's older Config as Code (`railway.json`) is deprecated and stops working on 2026-12-01. Secrets and origins are Railway shared variables, never in the file; variable reference: [`deploy/env/`](deploy/env/).
-2. **Optional**: Google/GitHub sign-in (exact callback URLs in [docs/deployment.md §3.5](docs/deployment.md#35-google-and-github-sign-in-optional)) and email verification / password reset via Resend ([docs/email.md](docs/email.md)).
-3. **Vercel** — root `apps/web`, framework Next.js, `API_URL=https://<railway-api-domain>` (build time). Browsers only talk to the Vercel origin and `/api/*` is proxied, so auth cookies are first-party.
+1. **Render** — Postgres and Key Value (Maxmemory Policy `noeviction`) in one region; an Environment Group `fleqo-shared` with the database URLs, origins and secrets; Web Service `fleqo-api` (Docker, Dockerfile Path `apps/api/Dockerfile`, Pre-Deploy Command `npm run db:deploy`, Health Check Path `/api/health`); Background Worker `fleqo-worker` (same image, Docker Command `node dist/worker.js`). Variable templates: [`deploy/env/`](deploy/env/).
+2. **Optional**: Google/GitHub sign-in (exact callback URLs in [docs/deployment.md §3.6](docs/deployment.md#36-google-and-github-sign-in-optional)) and email verification / password reset via Resend ([docs/email.md](docs/email.md)).
+3. **Vercel** — root `apps/web`, framework Next.js, `API_URL=https://<name>.onrender.com` (build time). Browsers only talk to the Vercel origin and `/api/*` is proxied, so auth cookies are first-party.
 4. **Verify** — `npm run smoke -- --base-url https://<vercel-domain>`, `E2E_BASE_URL=https://<vercel-domain> npm run test:e2e`, then the proxy and cookie checks in deployment.md §8.
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) has three jobs:
@@ -180,7 +180,7 @@ CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) has three jobs:
 - **reliability** — the process-level script;
 - **docker** — the image build.
 
-Secrets are generated per run. The workflow uses Node 24 actions (`checkout`/`setup-node`/`upload-artifact` v7) on pinned `ubuntu-24.04` runners; all three jobs passed on GitHub for commit `4f81a18` ([production-test-results.md §10](docs/production-test-results.md#10-ci-fix-railway-iac-and-email-2026-11-01)).
+Secrets are generated per run. The workflow uses Node 24 actions (`checkout`/`setup-node`/`upload-artifact` v7) on pinned `ubuntu-24.04` runners; all three jobs passed on GitHub for commit `4f81a18` ([production-test-results.md §10](docs/production-test-results.md#10-ci-fix-railway-iac-and-email-2026-11-01)). CI contains no hosting-platform checks.
 
 ## Design decisions and trade-offs
 | Decision | Why | Cost |
@@ -238,7 +238,6 @@ apps/
   web/                    Next.js 16 App Router + shadcn/ui + TanStack Query
     src/app/(auth) (app) invite/ onboarding/   pages · src/components · src/features · src/lib
     e2e/                  Playwright specs + console-error guard fixture
-.railway/                 railway.ts — Railway Infrastructure as Code (project, databases, API, worker)
 deploy/env/               production environment templates (placeholders only)
 scripts/                  reliability-check.sh (process-level fault injection)
 docs/                     requirements, architecture, ERD, API/UI specs, release & security audits,

@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
 # One image for both long-running services; they differ only in the start command:
 #   API:    node dist/server.js        Worker: node dist/worker.js
-# Release step (before switching traffic):  npx prisma migrate deploy
+# Release step (before switching traffic):  npm run db:deploy
+#   (uses the image's Prisma CLI; `npx prisma` would download the latest release if run outside /app)
 # Build from the repository root:  docker build -f apps/api/Dockerfile -t fleqo-api .
 
 # ── 1. Compile TypeScript and generate the Prisma client (needs devDependencies) ─────────

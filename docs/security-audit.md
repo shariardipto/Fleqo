@@ -29,9 +29,9 @@ Every "Verified" item names the automated test or command that proves it ([produ
 | --- | --- | --- |
 | Session security | HttpOnly, `SameSite=Lax`, `Secure` + `__Secure-` prefix in production; DB-backed sessions; sign-out revokes | Verified |
 | Better Auth configuration | `trustedOrigins = WEB_ORIGINS`, `baseURL` = public web origin, rate limit in production, `disabledPaths: ["/organization/list-user-invitations"]`, `disableOrganizationDeletion`, invitation expiry 48 h, org limit 10, email/password only | Verified (tests) |
-| CORS & reverse proxy | CORS allow-list with credentials. The browser uses the same-origin Next.js `/api` rewrite. `TRUST_PROXY` (0 locally, 2 behind Vercel + Railway). | Locally verified; `TRUST_PROXY=2` must be confirmed live (deployment.md §8) |
+| CORS & reverse proxy | CORS allow-list with credentials. The browser uses the same-origin Next.js `/api` rewrite. `TRUST_PROXY` (0 locally, 2 behind Vercel + Render, to be confirmed live). | Locally verified; `TRUST_PROXY=2` must be confirmed live (deployment.md §8) |
 | CSRF | SameSite=Lax cookies; CORS blocks cross-origin JSON; Better Auth origin checks; **plus** Fleqo `requireTrustedOrigin` for cookie-bearing mutations | Verified |
-| Secure cookies & HTTPS | Production refuses non-HTTPS origins; HSTS on the web; Vercel/Railway terminate TLS | Guard verified; live TLS pending (R6) |
+| Secure cookies & HTTPS | Production refuses non-HTTPS origins; HSTS on the web; Vercel/Render terminate TLS | Guard verified; live TLS pending (R6) |
 | Input validation | Zod everywhere; bodies 256 KB (JSON) / 64 KB (webhooks) | Verified |
 | SQL injection | See A03 | Verified |
 | Webhook signature, timing-safe compare | `crypto.timingSafeEqual` over equal-length buffers; format pre-check `^[0-9a-f]{64}$` | Verified |
@@ -90,7 +90,7 @@ No dependency upgrades were needed; no breaking upgrades were applied.
 | --- | --- | --- |
 | Email addresses are not verified **until an email provider is configured**. Without it, anyone can register an unused address; a later real owner of that address cannot sign up. **No longer grants organization access.** | Medium → Low once enabled | Implemented (§9): configure Resend and set `REQUIRE_EMAIL_VERIFICATION=true` (this also requires verification for invitations) |
 | Rate limits (express-rate-limit, Better Auth) are in-memory per API instance. | Low (single instance) | Before scaling the API horizontally, use a Redis store (`rate-limit-redis`) and Better Auth `secondaryStorage` |
-| Direct requests to the Railway API domain bypass Vercel. `X-Forwarded-For` could then be spoofed toward the IP-based limits. | Low | Keep `TRUST_PROXY` exact. Optionally block non-webhook paths on the public API domain, or give webhooks their own domain |
+| Direct requests to the Render API domain bypass Vercel. `X-Forwarded-For` could then be spoofed toward the IP-based limits. | Low | Keep `TRUST_PROXY` exact. Optionally block non-webhook paths on the public API domain, or give webhooks their own domain |
 | CSP allows `'unsafe-inline'` scripts (Next.js/next-themes inline scripts). | Low | Move to a nonce-based CSP via Next.js middleware |
 | Single `ENCRYPTION_KEY`, no built-in rotation of stored ciphertexts. | Low | Procedure: rotate every connection's signing secret after changing the key; the `v1.` prefix leaves room for key IDs |
 | `unknown_connection` vs `invalid_signature` responses reveal whether a public connection ID exists. | Info | Accepted: public IDs identify, never authorize (96-bit random) |
@@ -122,12 +122,21 @@ No new dependencies at runtime (`@axe-core/playwright` is a dev dependency). `np
 | Area | Change | Evidence |
 | --- | --- | --- |
 | Supply chain (CI) | GitHub Actions moved from v4 (Node 20, deprecated) to `actions/checkout`, `setup-node` and `upload-artifact` **v7** (Node 24); runners pinned to `ubuntu-24.04`. Workflow permissions stay `contents: read`; secrets are still generated per run | GitHub run 41290735002: three jobs green, no annotations; actionlint 1.7.12 clean |
-| Deployment config | Railway Config as Code replaced by Infrastructure as Code (`.railway/railway.ts`). The file holds **no secrets**: shared variables (`ctx.shared`) and `preserve()` keep values in Railway, where they should be sealed. Type-checked against the official SDK in CI | `npm run railway:check`; a negative test confirmed misspelled keys fail |
-| Dependency | `railway@3.16.0` added as a **dev** dependency only (DSL types; the IaC engine runs in the Railway CLI). Not in the API image | `npm audit --omit=dev` 0 vulnerabilities |
+| Deployment config | *(Removed later the same day, §10.)* Railway Config as Code replaced by Infrastructure as Code (`.railway/railway.ts`). The file holds **no secrets**: shared variables (`ctx.shared`) and `preserve()` keep values in Railway, where they should be sealed. Type-checked against the official SDK in CI | `npm run railway:check`; a negative test confirmed misspelled keys fail |
+| Dependency | *(Removed, §10.)* `railway@3.16.0` added as a **dev** dependency only (DSL types; the IaC engine runs in the Railway CLI). Not in the API image | `npm audit --omit=dev` 0 vulnerabilities |
 | Email verification | Optional `requireEmailVerification`: no session before the emailed link; sign-up for an existing address returns a look-alike response and notifies the owner (no enumeration); invitations also require verification | `email-auth.test.ts` (8 tests); browser flow run locally |
 | Password reset | Single-use token (1 h), `revokeSessionsOnPasswordReset`, same response for unknown addresses, emails sent after the response (no timing oracle), `redirectTo` validated (off-site → 403) | `email-auth.test.ts`, `password-reset.spec.ts` |
 | Abuse limits | Better Auth custom rate limits in production: 3/min per IP for `/request-password-reset` and `/send-verification-email` | Configuration review (rate limits are disabled in test mode) |
 | Email transport | Resend over HTTPS, key server-side only; failed sends log the status only (the message holds a token); `log`/`file` transports refused in production; inconsistent settings refused at startup | `emailConfigProblems` unit test; production guard |
-| Redis on Railway | ioredis `family: 0` (dual-stack DNS) so the private network works in IPv6-only environments | API suite 66/66 locally with the change; CI green |
+| Redis on private networks | ioredis `family: 0` (dual-stack DNS) so the private network works in IPv6-only environments | API suite 66/66 locally with the change; CI green |
 
-New residual items: no real email has been sent (no Resend account or domain yet), so deliverability (SPF/DKIM/DMARC) is unverified, and Railway `plan`/`apply` has not been run (needs the CLI login and approval).
+New residual items: no real email has been sent (no Resend account or domain yet), so deliverability (SPF/DKIM/DMARC) is unverified, and the deployment has not been made yet.
+
+## 10. Addendum — deployment target changed to Render + Vercel (2026-11-01)
+- Removed `.railway/` and the `railway` dev dependency (`package.json`/`package-lock.json` are back to their pre-Railway state); CI no longer runs a platform check. No runtime code changed (three comments reworded).
+- Render settings that affect security, documented in deployment.md §3:
+  - shared secrets live in one Render Environment Group linked to the API and worker;
+  - Postgres and Key Value are reached over internal URLs on Render's private network (external Postgres access requires `sslmode=require`);
+  - Key Value internal connections need no password by default, so keep it unreachable externally (Render's default) and in the same workspace and region;
+  - Render passes environment variables to Docker builds as build arguments, but the Dockerfile declares no `ARG`s, so no secret is baked into the image.
+- `TRUST_PROXY=2` (Vercel proxy + Render load balancer) is a starting value: Render does not document its proxy hop count, so it must be confirmed from `clientIp` after deploying (deployment.md §8). The risk row on direct requests to the API domain now applies to the `onrender.com` domain.

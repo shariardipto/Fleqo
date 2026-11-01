@@ -159,7 +159,7 @@ This is the planned contract; request/response schemas will be finalized before 
 - **Database:** PostgreSQL, Prisma ORM.
 - **Queue/worker:** Redis, BullMQ, separate Node.js worker process.
 - **Testing:** Vitest, Supertest, Playwright.
-- **Infrastructure:** Docker for local databases/services; Vercel for frontend; Railway or an equivalent long-running host for API and worker.
+- **Infrastructure:** Docker for local databases/services; Vercel for frontend; Render (or an equivalent long-running host) for API and worker.
 
 **Version policy:** Before initialization, use currently stable compatible package releases, pin direct dependency versions and confirm Better Auth ↔ Prisma adapter compatibility.
 

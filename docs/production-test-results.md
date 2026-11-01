@@ -212,3 +212,34 @@ The 3 skipped E2E tests are the social sign-in specs; they run only when an OAut
 | Settings parity | Every key of the former `deploy/railway/api.json`/`worker.json` (builder, Dockerfile path, watch paths, start, pre-deploy, healthcheck + timeout, restart policy + retries, draining) is declared with the SDK's typed `build`/`deploy` objects |
 | Redis on Railway's private network | ioredis `family: 0` added; API suite and CI green with it |
 | `railway config plan` / `apply` | **Not executed**: needs the Railway CLI login and your approval (it creates billable resources) |
+
+## 11. Deployment target changed to Render + Vercel (2026-11-01)
+Railway configuration removed (`.railway/`, the `railway` dev dependency and the `railway:check` step); docs and env templates rewritten for Render + Vercel. No runtime code changed (three comments reworded).
+
+| Check | Result |
+| --- | --- |
+| `package.json` / `package-lock.json` | Identical to `4f81a18` (before the Railway SDK was added): `git diff 4f81a18` is empty |
+| `npm audit --omit=dev` / `npm audit` | 0 / 0 vulnerabilities |
+| `npm run lint` | exit 0 |
+| `npm run typecheck` (API + web, with `next typegen`) | exit 0 |
+| `npm test` | **12 files, 74/74 passed** (73.4 s). A first run had 1 failure in `webhooks.test.ts` → "rejects stale and future timestamps": the test's future timestamp is exactly `tolerance + 1` s, so a request that reaches the server more than 1 s after the test reads the clock (machine under load) falls inside the window. The file passed 10/10 alone and the full suite passed on the re-run. This existing test-timing margin is unrelated to this change |
+| `npm run build` | exit 0 (API `tsc`, web `next build`, 24 static pages) |
+| `docker build -f apps/api/Dockerfile .` (Render's settings: Dockerfile path + repository-root context) | Success, 725 MB; runs as `fleqo` in `/app/apps/api`; `dist/server.js`, `dist/worker.js` and Prisma CLI 7.10.1 present (pre-deploy `npx prisma migrate deploy` works) |
+| E2E | Not re-run: no web, API or worker code changed in this step |
+| Render deployment | **Not executed** (owner deploys by hand; checklist in deployment.md §8) |
+
+## 12. Render compatibility review (2026-11-01)
+A local emulation of Render's runtime using the production image, built exactly as Render builds it (Dockerfile Path `apps/api/Dockerfile`, repository root as context). Throwaway containers, networks and secrets; nothing deployed.
+
+| Check | Result |
+| --- | --- |
+| Pre-deploy `npm run db:deploy` as the image's non-root user, on a network **without internet**, PostgreSQL **16**, Render-style internal URL (`postgresql://user:pass@dpg-…/db`, no port or parameters) | `All migrations have been successfully applied`; re-run: `No pending migrations` (the migration engine is inside the image; migrations work on PostgreSQL 16) |
+| Same command from `/app` / from `/` | Works / fails loudly with `ENOENT /package.json` (no download) |
+| `npx prisma migrate deploy` started from `/` | **Downloaded and ran `prisma@8.0.0-rc.29` from npm** (refused only because that release renamed the command). Fixed: the documented release command is now `npm run db:deploy` |
+| API, image `CMD`, `PORT=10000`, `NODE_ENV=production` | `Fleqo API running on port 10000`; `/api/health` 200; `/api/ready` → database and Redis connected |
+| Worker, Docker Command `node dist/worker.js` | Started; processed the smoke test's jobs |
+| Key Value: Valkey 8 with `noeviction` | Reports `redis_version:7.2.4` (BullMQ-compatible); no warnings |
+| Key Value left at `allkeys-lru` | Worker logs `IMPORTANT! Eviction policy is allkeys-lru. It should be "noeviction"` (now in the troubleshooting table) |
+| `npm run smoke` against the API | **13/13** |
+| Free-instance Docker Command `sh -c "… migrate … && node dist/server.js"` | Migrates, serves on 10000, shuts down gracefully on SIGTERM |
+| SIGTERM (`docker stop -t 30`, Render's default shutdown delay) | API and worker exit 0 with "Shutting down …"; no error logs |

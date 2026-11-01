@@ -20,7 +20,7 @@ If docs and current code disagree, preserve working code until you identify the 
 - Async: Redis + BullMQ and an independently running worker/dispatcher.
 - Validation: Zod. Tests: Vitest/Supertest and Playwright. Dev infra: Docker Compose.
 - Monorepo: retain current `apps/web`, `apps/api`, `docs` and root workspace. Introduce `apps/worker` and shared packages only as needed. Respect existing Prisma schema/output paths; don't duplicate clients or migration directories without good reason.
-- Production target: Vercel frontend; a long-running service for Express API and separate BullMQ worker (Railway or equivalent); managed PostgreSQL/Redis. Never claim deployment succeeded without live verification.
+- Production target: Vercel frontend; a long-running service for Express API and separate BullMQ worker (Render: web service + background worker); managed PostgreSQL/Redis. Never claim deployment succeeded without live verification.
 
 ## Current repository handoff notes
 Screenshots suggest that `apps/web`, `apps/api`, a Prisma schema and generated Prisma client, `apps/api/src/lib/prisma.ts`, `apps/api/src/server.ts`, Docker Compose, a root `.env` and `apps/api/.env` already exist. **These are observations, not proof of correct runtime behavior.** The Prisma config may currently be named `prisma7.config.ts`; inspect its actual contents and CLI invocation before changing anything. Docker Compose may be called `compose.yaml`.

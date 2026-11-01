@@ -13,7 +13,7 @@ export interface Email {
 
 type Transport = (email: Email) => Promise<void>;
 
-/** Resend's HTTPS API (no SMTP, which Railway blocks on some plans). */
+/** Resend's HTTPS API (no SMTP: hosts block SMTP ports on some plans, e.g. Render's free web services). */
 function resendTransport(apiKey: string, from: string): Transport {
   return async (email) => {
     const response = await fetch("https://api.resend.com/emails", {

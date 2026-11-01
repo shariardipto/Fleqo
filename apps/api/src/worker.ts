@@ -13,7 +13,7 @@ const dispatcher = startDispatcherLoop(runQueue, logger);
 
 logger.info("Fleqo worker started (BullMQ consumer + outbox dispatcher)");
 
-// Optional liveness endpoint for hosts that health-check processes (e.g. Railway).
+// Optional liveness endpoint for hosts or monitors that health-check the worker process.
 const healthPort = Number(process.env.WORKER_HEALTH_PORT ?? 0);
 const healthServer =
   healthPort > 0

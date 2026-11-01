@@ -1,5 +1,7 @@
 # Fleqo v1.0 — Release Audit
 
+> **Update 2026-11-01:** the deployment target is now Render + Vercel. The Railway configuration reviewed below was removed; see [deployment.md](./deployment.md).
+
 **Date:** 2026-11-01 · **Scope:** release phases R1–R5 (R6 needs deployment approval) · **Baseline:** MVP M0–M8, uncommitted working tree on `master` (last commit `380fca2`).
 
 Related documents: [security-audit.md](./security-audit.md) · [production-test-results.md](./production-test-results.md) · [deployment.md](./deployment.md) · [agent-progress.md](./agent-progress.md)
