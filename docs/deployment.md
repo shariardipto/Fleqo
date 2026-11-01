@@ -1,8 +1,8 @@
 # Fleqo — Production Deployment Guide (Render + Vercel)
 
-**Status (2026-11-01): prepared, NOT deployed.** Every artifact below was verified locally (production Docker image, migrations from an empty database, health checks, smoke test). Render facts were checked against Render's documentation on 2026-11-01 (links inline). Nothing here has been provisioned, purchased or published.
+This guide is the production topology: separate API and worker services on paid Render instances, with Render Postgres and Key Value. Every artifact was verified locally (production Docker image, migrations from an empty database, health checks, smoke test), and Render facts were checked against Render's documentation on 2026-11-01 (links inline).
 
-> **$0 portfolio demo instead?** One free Render web service running API and worker together, with Neon and Render Key Value free tiers: [deployment-demo.md](./deployment-demo.md). This guide is the production setup with separate services.
+> **The live demo** ([fleqo-web.vercel.app](https://fleqo-web.vercel.app)) runs the $0 variant instead: one free Render web service running API and worker together, with Neon and Render Key Value free tiers. See [deployment-demo.md](./deployment-demo.md).
 
 ## 1. Architecture
 
@@ -110,10 +110,10 @@ OAuth callbacks go to the **web** origin (Vercel), which proxies `/api/*` to the
 | GitHub (OAuth App) | Homepage URL | `https://app.example.com` |
 | | Authorization callback URL | `https://app.example.com/api/auth/callback/github` |
 
-Replace `app.example.com` with your real web host (custom domain or `<project>.vercel.app`). The value must match `BETTER_AUTH_URL` exactly: `https`, no trailing slash, no `www.` difference. Vercel preview URLs change per deployment and cannot complete OAuth. Then set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and/or `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` on `fleqo-api` only. Step-by-step console instructions and the live verification checklist: [social-auth.md](./social-auth.md).
+Replace `app.example.com` with your real web host (custom domain or `<project>.vercel.app`). The value must match `BETTER_AUTH_URL` exactly: `https`, no trailing slash, no `www.` difference. Vercel preview URLs change per deployment and cannot complete OAuth. Then set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and/or `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` on `fleqo-api` only. Step-by-step console instructions and the live verification checklist: [authentication.md §4](./authentication.md#4-social-sign-in-optional).
 
 ### 3.7 Email verification and password reset (optional)
-Set `EMAIL_PROVIDER=resend`, `EMAIL_FROM` (an address on a domain verified in Resend) and `RESEND_API_KEY` on `fleqo-api`. Prove that a password-reset email arrives, then set `REQUIRE_EMAIL_VERIFICATION=true` so public registration needs a verified address. DNS records, rollout order and the security design: [email.md](./email.md).
+Set `EMAIL_PROVIDER=resend`, `EMAIL_FROM` (an address on a domain verified in Resend) and `RESEND_API_KEY` on `fleqo-api`. Prove that a password-reset email arrives, then set `REQUIRE_EMAIL_VERIFICATION=true` so public registration needs a verified address. DNS records, rollout order and the security design: [authentication.md §3](./authentication.md#3-email-verification-and-password-reset-optional).
 
 ## 4. Vercel (web)
 1. Add New Project → import the repository.
@@ -172,10 +172,10 @@ Run after the deployment. Do not call the deployment complete until every item p
 6. **E2E against production** (creates throwaway users): `E2E_BASE_URL=https://<vercel-domain> npm run test:e2e`. It covers registration and auth, roles, invite links, import, workflow, retries, dead letter and manual retry, execution logs, mobile layout and **no browser console errors**. (The password-reset spec runs only against an API with the `file` email transport, so it skips here.)
 7. **Proxy check:** in the API logs for your own request, `clientIp` must equal your public IP (not a Vercel or Render address). Render does not document how many proxies sit in front of a service, so this check decides `TRUST_PROXY`: if a proxy address shows, adjust it (1 or 3) and redeploy.
 8. **Cookie check:** in the browser devtools, the session cookie is `__Secure-better-auth.session_token`, `HttpOnly`, `Secure`, `SameSite=Lax`, on the Vercel domain.
-9. **Email** (if configured): `/sign-in` shows **Forgot password?**; a reset email arrives within a minute and the link works once. With `REQUIRE_EMAIL_VERIFICATION=true`, a new sign-up shows "Check your inbox" and the emailed link signs the user in ([email.md §3](./email.md#3-setting-up-resend-owner)).
-10. **Social sign-in** (only for providers you configured): `/sign-in` shows exactly those buttons; then run the live checklist in [social-auth.md §6](./social-auth.md#6-live-verification-checklist-needs-real-credentials) and mark a provider as live-verified only after it passes.
+9. **Email** (if configured): `/sign-in` shows **Forgot password?**; a reset email arrives within a minute and the link works once. With `REQUIRE_EMAIL_VERIFICATION=true`, a new sign-up shows "Check your inbox" and the emailed link signs the user in ([authentication.md §3](./authentication.md#3-email-verification-and-password-reset-optional)).
+10. **Social sign-in** (only for providers you configured): `/sign-in` shows exactly those buttons; then run the live checklist in [authentication.md §4](./authentication.md#4-social-sign-in-optional) and treat a provider as live only after it passes.
 11. Optional: run `npm run smoke` with `--base-url https://<name>.onrender.com --origin https://<vercel-domain>` to exercise the API domain directly.
-12. Record the results in `docs/production-test-results.md` (new "Live" section) with the deploy IDs.
+12. Keep the results with the deploy IDs in your release notes.
 
 ## 9. Troubleshooting
 | Symptom | Likely cause |

@@ -6,7 +6,7 @@ import { resetDatabase } from "./helpers/db.ts";
 
 const app = buildApp();
 
-describe("release security controls (R3)", () => {
+describe("release security controls", () => {
   beforeEach(resetDatabase);
   afterAll(() => prisma.$disconnect());
 

@@ -363,7 +363,7 @@ paths:
         `POST /api/auth/sign-in/social` → provider → `GET|POST /api/auth/callback/{provider}`.
         `passwordReset` is true when an email provider is configured (`POST /api/auth/request-password-reset`,
         `GET /api/auth/reset-password/{token}`, `POST /api/auth/reset-password`). `emailVerification` is
-        `required` (no session until `GET /api/auth/verify-email` succeeds), `optional` or `off`. See docs/email.md.
+        `required` (no session until `GET /api/auth/verify-email` succeeds), `optional` or `off`. See docs/authentication.md.
       responses:
         "200":
           description: OK

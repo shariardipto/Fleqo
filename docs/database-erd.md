@@ -1,10 +1,7 @@
 # Fleqo — Database ERD and Data Model
 
-**Version:** 0.2, reconciled with the implemented schema (migration `20261031155142_init`)
-**Database:** PostgreSQL 18 · **ORM:** Prisma 7.10 (`prisma-client` generator, `@prisma/adapter-pg`)
-**Source of truth:** [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prisma)
-
-> Version 0.1 of this document was a proposal. This version describes what is implemented. Differences from the proposal are listed in [§7](#7-changes-from-the-v01-proposal).
+**Database:** PostgreSQL 16+ (18 locally) · **ORM:** Prisma 7.10 (`prisma-client` generator, `@prisma/adapter-pg`)
+**Source of truth:** [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prisma) and its migrations (`20261031155142_init`)
 
 ## 1. Entity-relationship diagram
 
@@ -124,13 +121,13 @@ The CHECK constraints are written by hand at the end of the init migration becau
 | Action | `UNIQUE (workflowRunId, workflowActionId)`; succeeded actions are skipped; success committed with `UPDATE … WHERE status='running' AND attempts=<n>` |
 | Destination | Customer upsert key; sheet insert-or-keep key; write + action success in **one transaction** |
 
-## 7. Changes from the v0.1 proposal
-| Proposal | Implemented | Reason |
-| --- | --- | --- |
-| `OrganizationMember` table | Better Auth `member` (+ `invitation`) | Owner decision: use the official Organization plugin; no duplicate tables |
-| Status as free text | PostgreSQL enums; runs and action runs share `RunStatus` | Database-level validation |
-| No log table | `execution_log` | Action-level, per-attempt logs required by the execution detail view |
-| `MockCustomer` key only | Plus `createdByActionRunId` / `updatedByActionRunId` / `lastOrderExternalId` | Shows whether an upsert created or updated, and traceability |
-| `ImportedRecord` 3-column key | Same key; `kind` is a separate column and `sourceRecordId` carries the source path | Avoids ID collisions between users, products and carts without changing the key |
-| — | `integration_connection UNIQUE (organizationId, provider)` | MVP simplification: one mock connection per provider |
-| — | Hand-written CHECK constraints | Money and counter integrity |
+## 7. Design decisions
+| Decision | Reason |
+| --- | --- |
+| Memberships and invitations use Better Auth's `member` and `invitation` tables | The official Organization plugin; no duplicate membership tables |
+| Statuses are PostgreSQL enums; runs and action runs share `RunStatus` | Database-level validation |
+| A separate `execution_log` table | Action-level, per-attempt logs for the execution detail view |
+| `mock_customer` records `createdByActionRunId`, `updatedByActionRunId` and `lastOrderExternalId` | Shows whether an upsert created or updated a customer, and traces it to the action |
+| `imported_record` is keyed by `(organizationId, source, sourceRecordId)`, with the source path in `sourceRecordId` and `kind` as its own column | No ID collisions between users, products and carts |
+| `integration_connection UNIQUE (organizationId, provider)` | Simplification: one mock connection per provider |
+| Hand-written CHECK constraints | Money and counter integrity |

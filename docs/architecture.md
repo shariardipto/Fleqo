@@ -1,319 +1,155 @@
-# Fleqo — System Architecture Design
+# Fleqo — Architecture
 
-**Phase:** 00 · Step 02 (updated after M0–M8)  
-**Version:** 0.2 (MVP architecture, implemented)  
-**Status:** Implemented. Deviations from the original proposal are recorded in [§16](#16-implementation-notes-v02).  
-**Source of truth:** `docs/requirements.md`  
-**Scope:** A multi-organization, predefined order-sync automation platform using public data and PostgreSQL-backed mock integrations.
+Fleqo is a multi-tenant order-sync automation platform. A signed `order.created` webhook from a store becomes a workflow run that upserts the customer into a CRM and appends the order to a spreadsheet, exactly once per order, with retries, a dead-letter queue and a per-attempt execution log. The store, CRM and spreadsheet are PostgreSQL-backed mock integrations, so every effect is real, inspectable and testable.
 
-> This document is a proposed technical design derived from the SRS. Names of internal services, headers, table additions, and folder locations are implementation decisions, not already-implemented features.
+Related: [database-erd.md](./database-erd.md) · [api-spec.yaml](./api-spec.yaml) · [security.md](./security.md) · [authentication.md](./authentication.md) · [frontend.md](./frontend.md) · [testing.md](./testing.md) · [deployment.md](./deployment.md)
 
-## 1. Architectural goals
-
-Fleqo must:
-
-1. Offer a Next.js dashboard where authenticated users configure and monitor automation.
-2. Expose a separate Express + TypeScript API for auth-aware CRUD operations and signed webhook ingestion.
-3. Store relational business state, imported demo data, and execution history in PostgreSQL through Prisma.
-4. Use a separate Redis/BullMQ worker for automation, so the API does not wait for long-running integrations.
-5. Prevent cross-organization access and duplicate downstream writes.
-6. Recover persisted events if Redis or the worker is temporarily unavailable.
-7. Operate initially with public datasets/APIs and PostgreSQL-backed mock CRM/Sheet destinations.
-
-## 2. Component architecture
+## 1. Components
 
 ```mermaid
 flowchart TB
-  U[Browser / Fleqo User] --> W[Next.js + React Dashboard]
-  W -->|HTTPS / session| A[Express REST API]
-  A --> AUTH[Better Auth + RBAC]
+  U[Browser] --> W[Next.js web app<br/>apps/web]
+  W -->|same-origin /api proxy| A[Express API<br/>apps/api/src/server.ts]
+  A --> AUTH[Better Auth + Organization plugin]
   A --> P[(PostgreSQL via Prisma)]
-  A -->|queue run IDs| Q[(Redis / BullMQ)]
-  Q --> WR[Dedicated Node.js Worker]
-  WR --> P
-  WR --> MC[Mock CRM Adapter]
-  WR --> MS[Mock Sheet Adapter]
+  A -->|best-effort enqueue| Q[(Redis / BullMQ)]
+  Q --> WK[Worker + outbox dispatcher<br/>apps/api/src/worker.ts]
+  WK --> P
+  WK --> MC[Mock CRM adapter]
+  WK --> MS[Mock Sheet adapter]
   MC --> P
   MS --> P
-  REC[Recovery dispatcher] --> P
-  REC --> Q
-  PUB[Public APIs / Licensed Datasets] --> IMP[Import & Normalization Service]
-  IMP --> P
-  P --> SIM[Authorized Demo Order Simulator]
-  SIM -->|Signed order.created request| WH[Webhook Route on Express API]
-  WH --> P
-  WH --> Q
+  SIM[Demo simulator / external sender] -->|signed POST /api/webhooks/mock-store| A
+  PUB[DummyJSON / synthetic generator] --> IMP[Import service] --> P
 ```
 
-**Notes:**
-- `Mock CRM` and `Mock Sheet` are logical adapter modules, not separate hosted providers in the MVP; they write to Fleqo's PostgreSQL tables.
-- Public data imports run on the server. Data sources do not have to provide genuine order webhooks.
-- Redis is a transport/retry system; PostgreSQL stores authoritative event, workflow, and execution state.
-- The recovery dispatcher may run periodically in the worker process in the MVP, not necessarily as a standalone service.
-
-## 3. Responsibilities by service
-
-| Component | Responsibility | Must NOT do |
+| Component | Responsibility | Never does |
 | --- | --- | --- |
-| Next.js web | Auth screens, dashboards, workflow forms, API data display | Hold integration secrets or execute automations |
-| Express API | Validate HTTP, check session + organization access, CRUD, import control, signed webhook ingestion | Run long worker jobs in the request cycle |
-| Better Auth | User, account, session, verification and identity management | Replace business-specific organization permission checks |
-| PostgreSQL + Prisma | Durable records, constraints, transactional mock destination writes | Serve as a Redis queue replacement |
-| Redis + BullMQ | Job dispatch, backoff, worker delivery | Be the only source of truth for deduplication |
-| Worker | Match workflow runs, map fields, execute actions in order, persist results | Trust user-controlled target URLs or bypass org checks |
-| Public data importer | Fetch/import allowed data, validate, normalize, mark synthetic records | Treat third-party demo POST responses as persistent writes |
+| Next.js web | Landing page, auth screens, dashboard, workflow forms, execution views | Hold integration secrets or execute automations |
+| Express API | HTTP validation, sessions, organization RBAC, CRUD, demo import, signed webhook ingestion | Run workflow actions inside a request |
+| Better Auth | Users, sessions, accounts, organizations, members, invitations | Replace Fleqo's per-request membership checks |
+| PostgreSQL + Prisma | Source of truth: events, runs, action state, logs, outbox, destination records | Act as the queue |
+| Redis + BullMQ | Job delivery, backoff, retries | Decide idempotency (database keys do) |
+| Worker | Execute runs in order, write destinations, persist results; dispatch the outbox; recover stale runs | Trust user-supplied URLs or bypass tenant checks |
 
-## 4. Browser → API communication
+The worker is a second entry point in `apps/api`, so the API and worker share one Prisma client, the engine code and one Docker image, yet run as independent processes.
 
-1. User authenticates using Better Auth endpoints mounted on Express.
-2. Browser maintains secure session cookies according to the deployment origin strategy.
-3. Next.js pages/components call the Express API using TanStack Query where client-side fetching is appropriate.
-4. Express resolves the authenticated user, verifies their membership in the selected organization, and authorizes the requested operation.
-5. The API queries Prisma with both `organizationId` and resource IDs, never only with a user-supplied resource ID.
-6. Responses are JSON with consistent validation and error formats. React renders loading, empty, success, and error states.
-
-**Production origin preference:** `app.fleqo.example` for web and `api.fleqo.example` for API (same registrable domain) or a same-origin `/api` proxy. Configure Better Auth trusted origins, cookies, CSRF protection and CORS based on the chosen deployment. Never solve cookie problems by using wildcard credentials CORS.
-
-## 5. Webhook → action sequence
+## 2. Event lifecycle
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant UI as Demo Simulator
-  participant API as Express Webhook API
+  participant S as Simulator / sender
+  participant API as Express API
   participant DB as PostgreSQL
   participant Q as BullMQ / Redis
   participant WK as Worker
-  participant CRM as Mock CRM
-  participant SHEET as Mock Sheet
-
-  UI->>API: POST signed order.created event
-  API->>API: Validate signature, timestamp & JSON schema
-  API->>DB: Insert incoming event (unique event key)
-  alt Duplicate event
-    DB-->>API: Existing event
-    API-->>UI: 200 duplicate acknowledged
-  else New event
-    API->>DB: Create matching run(s) and dispatch intent
-    DB-->>API: Durable commit
-    API->>Q: Enqueue run IDs (best effort)
-    API-->>UI: 202 event accepted
-    Q->>WK: Deliver queued run
-    WK->>DB: Claim run & check action state
-    WK->>CRM: Upsert customer
-    CRM->>DB: Transactional unique customer write
-    WK->>DB: Mark CRM action succeeded
-    WK->>SHEET: Append/upsert order row
-    SHEET->>DB: Transactional unique row write
-    WK->>DB: Mark Sheet action + run succeeded
+  S->>API: POST /api/webhooks/mock-store (signed)
+  API->>API: raw body → connection → timestamp → HMAC → schema
+  API->>DB: one transaction: event + runs + action runs + outbox row
+  alt duplicate event ID, same payload
+    API-->>S: 200 duplicate (no new runs)
+  else new event
+    API-->>S: 202 accepted (after commit)
+    API->>Q: enqueue run (best effort)
+    Q->>WK: deliver job
+    WK->>DB: take run lease, skip succeeded actions
+    WK->>DB: CRM upsert + action succeeded (one transaction)
+    WK->>DB: Sheet insert-or-keep + action succeeded (one transaction)
+    WK->>DB: run succeeded
   end
-  Note over DB,Q: Recovery dispatcher re-enqueues committed pending runs if enqueue fails
+  Note over DB,Q: If enqueue fails, the dispatcher re-enqueues pending outbox rows
 ```
 
-The example above describes the success case. The retry and failure path is defined below.
+1. **Verification order** (`src/modules/webhooks`): the raw bytes are read before any JSON parser; `X-Fleqo-Connection-Id` resolves an active connection (a public ID identifies, it never authorizes); `X-Fleqo-Timestamp` must be within ±300 s; `X-Fleqo-Signature` is a constant-time-compared HMAC-SHA256 of `<timestamp>.<raw body>` with the connection's decrypted secret; then Zod validates the event.
+2. **Ingestion** (`ingest.service.ts`): one transaction stores the `IncomingEvent` (unique per organization + provider + event ID), a `WorkflowRun` per matching active workflow, its `ActionRun`s, an `EventDispatch` outbox row and log entries. The API answers only after the commit. A unique violation means a duplicate: the same canonical payload hash returns `200 {"status":"duplicate"}`; a different payload under the same ID returns `409`.
+3. **Dispatch** (`src/engine/dispatcher.ts`): the API enqueues `run-<id>-g<generation>` immediately. If Redis is down, the outbox row stays `pending`; the worker's dispatcher claims rows with `FOR UPDATE SKIP LOCKED` and a lease, enqueues them and marks them dispatched, backing off on errors.
+4. **Execution** (`src/engine/executor.ts`): the worker takes a run lease, runs actions in order and skips succeeded ones. It maps fields (`mapping.ts`, re-validated with Zod), then commits the adapter write and a conditional `ActionRun → succeeded` update in the same transaction (`src/integrations/mock-providers.ts`). Transient errors mark the action `retrying` and rethrow, so BullMQ retries with exponential backoff (`WORKFLOW_MAX_ATTEMPTS`). Permanent errors or the final attempt mark it `failed`, write a `DeadLetterEvent` and stop retries.
+5. **Recovery** (`recovery.ts`): every few dispatcher passes, unfinished runs whose queue job is gone, failed or completed are re-dispatched with a new generation. Jobs BullMQ still owns (waiting, active, delayed) are left alone.
+6. **Manual retry** (`POST /api/executions/:id/retry`, Admin/Owner): only incomplete actions run again, under a new dispatch generation.
 
-## 6. Webhook contract and trust boundary
+## 3. Idempotency and failure handling
+| Layer | Mechanism |
+| --- | --- |
+| Event | `UNIQUE (organizationId, provider, externalEventId)` plus a canonical (key-sorted) JSON hash |
+| Run | `UNIQUE (workflowId, incomingEventId)`; lease taken by a conditional UPDATE |
+| Action | `UNIQUE (workflowRunId, workflowActionId)`; success committed only `WHERE status='running' AND attempts=<n>` |
+| Destination | Customer upsert key; sheet row insert-or-keep key; written in the same transaction as the action's success |
+| Queue | Job IDs avoid duplicate jobs but are **not** relied on for correctness |
 
-**MVP public route:** `POST /api/webhooks/mock-store` (matching the SRS).
+- Statuses: `queued`, `running`, `retrying`, `succeeded`, `failed`.
+- Errors are classified as transient (retried) or permanent (dead letter); sanitized messages, attempt counts and timings are persisted per attempt in `execution_log`.
+- A crash between a destination write and its status update cannot double-write: both are in one transaction, and a re-delivered job finds the action already succeeded.
 
-**Proposed demo-specific headers:**
+## 4. Request pipeline and authorization
+`src/app.ts`, in order:
+1. `pino-http` (request ID, `clientIp`, redaction)
+2. Helmet
+3. CORS (`WEB_ORIGINS`, credentials, no wildcard)
+4. `Cache-Control: no-store`
+5. Health routes
+6. **Better Auth** at `/api/auth/*`
+7. **Webhooks** (`express.raw`, 64 KB, per-IP limit)
+8. `express.json` (256 KB)
+9. API rate limit
+10. **Trusted-origin check** for cookie-authenticated mutations
+11. Module routers
+12. 404, then the error handler (`{ error: { code, message, details?, requestId } }`)
 
-- `X-Fleqo-Connection-Id`: public connection identifier used to look up the organization's configured mock store.
-- `X-Fleqo-Timestamp`: Unix timestamp of the request in seconds.
-- `X-Fleqo-Signature`: hex-encoded HMAC-SHA256 signature of `<timestamp>.<raw_body>` with that connection's server-side secret.
+`requireOrg(permission)` (`src/middleware/auth.ts`) loads the Better Auth session, takes the tenant from the session's `activeOrganizationId` (never from request input), re-reads the membership, and checks the role against the shared permission model in `src/lib/permissions.ts`. Every query filters by resource ID **and** `organizationId`, so cross-tenant access returns 404. The webhook tenant comes only from the verified connection. Details: [security.md](./security.md), [authentication.md](./authentication.md).
 
-**Verification order:**
+## 5. Demo data and simulator
+- **Import** (`src/modules/demo/import.service.ts`): DummyJSON users, products and carts (fixed URLs, Zod-validated, prices converted to integer minor units, source and licence recorded), or an offline deterministic generator. Every generated record is marked synthetic.
+- **Simulator** (`simulator.service.ts`): builds `order.created` events, signs them with the tenant's secret and passes them through the **same** verification and ingestion code as external webhooks. Deterministic fault injection (`simulation.failures`) is honoured only by the mock adapters, so retries, dead letters and manual retry can be demonstrated.
 
-1. Resolve the connection ID to a stored, active connection. A public ID identifies a connection; it does not authorize it.
-2. Read the raw request bytes before any JSON parser changes them.
-3. Reject requests outside a short replay window (initial design: 5 minutes).
-4. Compute the HMAC on the exact raw body and compare in constant time.
-5. Parse JSON and validate the event schema and type (`order.created`).
-6. Under a database unique constraint, persist `(organizationId, provider, externalEventId)` and create dispatch intent.
-7. Return success only after persistence commits. Queue submission may be retried by the dispatcher.
+## 6. Processes and deployment
+| Process | Entry point | Local | Production ([deployment.md](./deployment.md)) | $0 demo ([deployment-demo.md](./deployment-demo.md)) |
+| --- | --- | --- | --- | --- |
+| Web | `apps/web` (Next.js) | `npm run dev:web` (:3000) | Vercel | Vercel Hobby |
+| API | `apps/api/src/server.ts` | `npm run dev:api` (:4000) | Render Web Service (Docker), pre-deploy `npm run db:deploy` | Combined in one Render Free web service via `node dist/single-service.js`, which runs migrations when pending and supervises both processes |
+| Worker + dispatcher | `apps/api/src/worker.ts` | `npm run dev:worker` | Render Background Worker, same image | (as above) |
+| PostgreSQL | — | Docker (`compose.yaml`) | Render Postgres | Neon Free |
+| Redis | — | Docker | Render Key Value (`noeviction`) | Render Key Value Free (`noeviction`) |
 
-**Route ordering:** Place Better Auth's Express handler before general `express.json()`; mount the webhook route's raw body parser before the general JSON parser as well. Other normal API routes can use JSON parsing.
+The browser only talks to the web origin; Next.js rewrites `/api/*` to the API, so Better Auth cookies stay first-party and CORS stays strict.
 
-## 7. Durable dispatch and idempotency
-
-Three unique business keys are required:
-
-- Incoming event: `(organizationId, provider, externalEventId)`.
-- Workflow run: `(workflowId, incomingEventId)`.
-- Action execution: `(workflowRunId, workflowActionId)` with durable action status; downstream write idempotency is separate.
-
-**Mock destination idempotency:**
-
-- `MockCustomer`: unique `(organizationId, provider, customerExternalId)`; use an upsert.
-- `MockSheetRow`: unique `(organizationId, workflowActionId, orderExternalId)`; use an upsert/insert-on-conflict rather than unconditional append.
-- Wrap local destination mutation and the action's success-state update in one PostgreSQL transaction so a worker crash does not generate a second logical effect.
-- Replayed events must reuse the existing event/run records and must skip already-succeeded actions.
-
-**Dispatch recovery:** The API commits an `EventDispatch` / outbox record in the same transaction as the incoming event and matching workflow runs. A dispatcher reads pending records and enqueues run IDs, then marks dispatch completed. If Redis is down, the outbox stays pending and the dispatcher retries. Queue job IDs are useful but are **not** the primary deduplication mechanism.
-
-## 8. Failure management
-
-- Action statuses: `queued`, `running`, `succeeded`, `failed`, `retrying`.
-- Retry transient failures (timeouts, upstream 429/5xx) with bounded exponential backoff.
-- Do not retry permanent errors (invalid credentials/schema, unauthorized access) automatically.
-- Persist sanitized error message, attempt count, timestamps and action ID.
-- If attempts are exhausted, mark run failed and write a dead-letter record (or equivalent persistent failure state) for investigation.
-- Manual retry must be authorized and continue only incomplete actions.
-- Treat network/API side effects as at-least-once unless the provider supports idempotency tokens. For real third-party integrations, add provider-specific idempotency/reconciliation later.
-
-## 9. Data model summary
-
-See **[`database-erd.md`](./database-erd.md)** for the relational ER diagram, model-by-model field suggestions, indexes, and organization boundaries.
-
-Main groups:
-
-- Auth: `User`, `Session`, `Account`, `Verification` (Better Auth-managed schema).
-- Multi-tenancy: `Organization`, `OrganizationMember`.
-- Configuration: `IntegrationConnection`, `Workflow`, `WorkflowTrigger`, `WorkflowAction`.
-- Events: `IncomingEvent`, `EventDispatch` (proposed reliability addition).
-- Runs: `WorkflowRun`, `ActionRun`, `DeadLetterEvent` (for exhausted failures).
-- Demo destinations: `MockCustomer`, `MockSheetRow`.
-- Other: `ImportedRecord`, `AuditLog`.
-
-## 10. API surface (draft contract, subject to Phase 03/06 refinements)
-
-| Method | Route | Access |
-| --- | --- | --- |
-| GET | `/api/health` | Public |
-| ALL | `/api/auth/*` | Better Auth |
-| POST | `/api/organizations` | Signed-in user |
-| GET / POST | `/api/connections` | Member / Admin+ as configured |
-| GET / POST | `/api/workflows` | Member / Admin+ as configured |
-| GET / PATCH | `/api/workflows/:id` | Organization-scoped |
-| POST | `/api/demo/import` | Admin/Owner |
-| POST | `/api/demo/simulate-order` | Authorized member |
-| POST | `/api/webhooks/mock-store` | Valid signed mock-store connection |
-| GET | `/api/executions` | Organization-scoped |
-| GET | `/api/executions/:id` | Organization-scoped |
-| POST | `/api/executions/:id/retry` | Admin/Owner initially |
-| GET | `/api/dashboard/summary` | Organization-scoped |
-
-Organization context may be selected by a trusted UI header/path parameter, but membership must be verified server-side on every request. The webhook establishes tenant context from its verified connection, not from an unverified organization ID inside its JSON body.
-
-## 11. Suggested repository structure
-
-> **Implemented structure differs:** the worker is a second entry point inside `apps/api` (`src/worker.ts`) and Prisma stays in `apps/api`, so there are no `apps/worker` or `packages/*` directories. See §16 and the README's repository layout. The original proposal is kept below for reference.
-
-```text
-fleqo/
-├── apps/
-│   ├── web/                     # Next.js app router + UI
-│   │   └── src/{app,components,features,lib}
-│   ├── api/                     # Express REST API
-│   │   └── src/
-│   │       ├── modules/{auth,organizations,connections,workflows,events,executions,demo,dashboard}
-│   │       ├── middleware/
-│   │       ├── lib/
-│   │       └── server.ts
-│   └── worker/                  # Separate long-lived BullMQ consumer
-│       └── src/{queues,processors,actions,recovery}
-├── packages/
-│   ├── db/                      # Prisma schema, migrations, shared Prisma client
-│   │   ├── prisma/
-│   │   └── src/
-│   └── contracts/               # Shared TypeScript types / Zod schemas
-│       └── src/
-├── docs/
-│   ├── requirements.md
-│   ├── architecture.md
-│   └── database-erd.md
-├── docker-compose.yml
-├── .env.example
-├── package.json                # npm workspaces
-└── README.md
+## 7. Repository layout
+```
+apps/
+  api/                    Express API + worker (TypeScript, ESM), Dockerfile
+    prisma/               schema.prisma, migrations/   (prisma.config.ts next to it)
+    src/
+      server.ts worker.ts single-service.ts app.ts
+      config/             environment validation (Zod)
+      contracts/          order.created event schema
+      engine/             queue, dispatcher (outbox), executor, recovery, mapping
+      integrations/       PostgreSQL-backed mock CRM / Sheet adapters
+      lib/                auth (Better Auth), prisma, redis, mailer, permissions, crypto, logger
+      middleware/         auth (requireOrg), origin-check, error-handler
+      types/              request context typing
+      modules/            organizations, connections, workflows, webhooks, executions, demo, dashboard, audit, public
+      scripts/            seed.ts, smoke.ts
+    test/                 Vitest + Supertest suites (incl. 100-event batch, security, recovery)
+  web/                    Next.js App Router + Tailwind + shadcn/ui + TanStack Query
+    src/app/              (auth) (app) docs/ invite/ onboarding/ + landing page, metadata routes
+    src/components/ src/features/ src/lib/
+    e2e/                  Playwright specs (app flows, landing, theme, accessibility, auth)
+deploy/                   environment templates: env/ (production), demo/ (single service)
+docs/                     this documentation
+scripts/                  reliability-check.sh (process-level fault injection)
+compose.yaml              PostgreSQL + Redis for local development
 ```
 
-This is a *target structure*, not files already generated by Step 02. We will create source directories in Phase 01.
-
-## 12. Data flow and provenance
-
-- Fetch products/users/carts from DummyJSON or Fake Store API, or import permitted Olist CSV files.
-- Validate using Zod and transform into Fleqo's normalized demo records.
-- Mark imported vs synthesized records and retain data source attribution metadata.
-- Generate a synthetic `order.created` event with a deterministic external order/event ID.
-- Sign that event using a configured mock connection secret and send it to Fleqo's webhook receiver.
-- Observe real, persisted CRM/Sheet results and execution logs.
-- Never treat public test endpoints as actual customer CRMs or assume they persist POST requests.
-
-## 13. Local and production deployment split
-
-| Part | Local | Production target |
+## 8. Design decisions
+| Decision | Why | Cost |
 | --- | --- | --- |
-| Frontend | Next.js dev server (`:3000`) | Vercel |
-| API | Express dev server (`:4000`) | Render Web Service (Docker) |
-| Worker/dispatcher | Node.js worker process | Render Background Worker (same image) |
-| PostgreSQL | Docker | Managed PostgreSQL (e.g. Neon) |
-| Redis | Docker | Managed Redis compatible with BullMQ |
-
-Production migrations run as controlled release operations. Worker and API share the database and queue credentials but run independently. Set resource limits and budgets; this design does not claim free production hosting.
-
-## 14. Decision log
-
-| Decision | Why | Consequence |
-| --- | --- | --- |
-| Express, not NestJS | Chosen by project owner for hands-on architecture learning | We implement modular layers ourselves |
-| PostgreSQL + Prisma | Relational workflow data and integrity constraints | Prisma v7 PostgreSQL driver adapter and config required |
-| Better Auth in Express | One backend authentication boundary | Route/body parser order matters |
-| Dedicated BullMQ worker | Avoid running actions inside API requests | Deploy worker separately |
-| PostgreSQL-backed mock destinations | Public demo APIs don't guarantee persistence | End-to-end effects can be tested reliably |
-| Database idempotency + outbox | Safe duplicates and queue failure recovery | A little additional implementation complexity |
-| Form-based workflows only | Keep solo-developer MVP tractable | Visual canvas deferred |
-| Worker as second entry point in `apps/api` | One Prisma client + shared engine code; still an independent process/service | Same image for API and worker |
-| Better Auth Organization plugin for orgs/members/invitations | Official model, roles owner/admin/member, no duplicate tables | Fleqo re-checks membership per request anyway |
-| Tenant = session `activeOrganizationId` | Server-side state; no client-supplied org header | Org switch affects all of the user's tabs |
-| Same-origin `/api` proxy (Next.js rewrites) | First-party cookies on Vercel; no cross-site cookie/CORS setup | One extra hop through the web host |
-| Run lease + conditional action-state update in the destination transaction | Exactly-once commit of each logical action under duplicate jobs/crashes | One extra conditional UPDATE per action |
-| Canonical JSON hash for duplicate detection | JSONB reorders keys; re-sends must still match | Key-order-only changes treated as identical |
-
-## 15. Step 02 review checklist
-
-- [ ] I can explain what runs in `web`, `api`, `worker`, and `packages`.
-- [ ] I understand why PostgreSQL is authoritative and Redis is the queue.
-- [ ] I can trace one signed order event from simulator to CRM and Sheet.
-- [ ] I understand why `organizationId` requires backend authorization.
-- [ ] I understand why event/run/action uniqueness must be enforced in PostgreSQL.
-- [ ] I reviewed `database-erd.md` and the deployment diagram.
-
-**Next:** Phase 01 — initialize npm workspaces, Next.js, Express, Docker PostgreSQL/Redis, and basic health endpoints. No application source code needs to be written during Step 02.
-
-## 16. Implementation notes (v0.2)
-
-These notes describe the system as built. Each one names its code location and the test that covers it.
-
-### 16.1 Processes
-| Process | Entry point | Local | Production |
-| --- | --- | --- | --- |
-| Web | `apps/web` (Next.js 16) | `npm run dev:web` (:3000) | Vercel, root `apps/web`, `API_URL` → API |
-| API | `apps/api/src/server.ts` → `createApp()` in `src/app.ts` | `npm run dev:api` (:4000) | Render Web Service `fleqo-api`, pre-deploy `prisma migrate deploy`, health `/api/health` |
-| Worker + dispatcher | `apps/api/src/worker.ts` | `npm run dev:worker` | Render Background Worker `fleqo-worker`, `node dist/worker.js` |
-| Single service (demo only) | `apps/api/src/single-service.ts` | — | Render Free web service, `node dist/single-service.js`: migrations if pending, then API + worker as supervised child processes ([deployment-demo.md](./deployment-demo.md)) |
-
-Both Render services build from `apps/api/Dockerfile` (repository root as context; see docs/deployment.md). The image was built and run in production mode locally, and the smoke test passed against it; nothing has been deployed live.
-
-### 16.2 Request pipeline (`src/app.ts`)
-`pino-http` (request ID, `clientIp`, redaction) → Helmet → CORS (`WEB_ORIGINS`, credentials, no wildcard) → `Cache-Control: no-store` on `/api` → health routes → **Better Auth** `app.all("/api/auth/*splat")` → **webhooks** (`express.raw`, 64 KB, own per-IP rate limit) → `express.json` (256 KB) → API rate limit → **trusted-origin check** for cookie-authenticated mutations → module routers → 404 → error handler (`AppError`, Zod, Better Auth `APIError`, body-parser errors → `{error:{code,message,details,requestId}}`). In production the process refuses to start with non-HTTPS origins or `NODE_TLS_REJECT_UNAUTHORIZED=0` (`src/config/env.ts`).
-
-### 16.3 Authorization
-`requireOrg(permission)` (`src/middleware/auth.ts`): Better Auth session → `activeOrganizationId` → `member` lookup by `(organizationId, userId)` → `roleHasPermission(role, permission)` from `src/lib/permissions.ts`, the same access-control statements Better Auth uses for its own organization endpoints. Better Auth fails closed: refusing a switch into a foreign organization clears the session's active organization (`test/auth-tenancy.test.ts`).
-
-### 16.4 Ingestion and outbox
-`src/modules/webhooks/ingest.service.ts` — verify → validate → one transaction (event + runs + action runs + dispatch + logs) → best-effort `dispatchPending(ids)`. A unique violation means a duplicate: if the canonical hash matches → 200 `duplicate`, else 409. `src/engine/dispatcher.ts` claims rows with `FOR UPDATE SKIP LOCKED` and a 30 s lease, enqueues `run-<id>-g<generation>` and marks them dispatched, or records `lastError` with exponential backoff (`test/webhooks.test.ts`, Redis-outage case).
-
-### 16.5 Execution
-`src/engine/executor.ts` — run lease → actions in order (skip succeeded) → mapping (`src/engine/mapping.ts`, re-validated with Zod) → adapter + conditional success update in one transaction (`src/integrations/mock-providers.ts`) → transient: `retrying` + rethrow (BullMQ exponential backoff, `WORKFLOW_MAX_ATTEMPTS`); permanent or final attempt: `failed` + `dead_letter_event` + `UnrecoverableError`. `src/engine/recovery.ts` re-dispatches unfinished runs whose queue job is gone. Manual retry: `POST /api/executions/:id/retry` (`test/worker.test.ts`, `test/batch.test.ts`).
-
-### 16.6 Demo data and simulator
-DummyJSON adapter (fixed URLs, Zod-validated, prices → minor units) and an offline deterministic generator (`src/modules/demo/import.service.ts`). The simulator (`simulator.service.ts`) signs events with the tenant's decrypted secret and sends them through the **same** `ingestOrderEvent` verification path. Deterministic fault injection (`simulation.failures`) is honoured only by the mock adapters.
-
-### 16.7 Deviations from the v0.1 proposal
-1. No `apps/worker` or `packages/*` (owner decision): the worker lives in `apps/api`.
-2. Organizations, members and invitations come from the Better Auth Organization plugin (owner decision).
-3. `ExecutionLog` table added for per-attempt logs.
-4. The simulator delivers in-process through the verification function rather than over HTTP to itself. External senders and all tests use real HTTP.
-5. Invitations are accepted in-app; no email is sent (no outbound messaging in the MVP).
-6. **v1.0 release hardening:** invitations are accepted only through an invite link (the random invitation ID), because email addresses are unverified. Email-based listing is removed and Better Auth's `/organization/list-user-invitations` is disabled. Stale-run recovery checks BullMQ job **state**, not existence. See [release-audit.md](./release-audit.md).
+| Separate Express API; worker as a second entry point in `apps/api` | One Prisma client and shared engine; independently deployable processes | API and worker ship the same image |
+| PostgreSQL is the source of truth, Redis only transports | Queue IDs cannot guarantee exactly-once side effects | Outbox table and dispatcher loop |
+| Transactional outbox + `SKIP LOCKED` dispatcher | An accepted event is never lost when Redis is down | Up to `DISPATCH_POLL_MS` extra latency during outages |
+| Run lease + conditional action update in the destination transaction | Duplicate jobs, crashes and retries cannot double-write | One extra conditional UPDATE per action |
+| Better Auth Organization plugin | Official members/invitations/roles; no duplicate tables | Fleqo still re-checks membership per request |
+| Tenant from the session's active organization | No client-supplied organization ID can grant access | Switching organizations affects all of a user's tabs |
+| Same-origin `/api` proxy (Next.js rewrites) | First-party cookies without cross-site cookie settings | One extra hop through the web host |
+| Canonical JSON hash for duplicates | JSONB reorders keys; re-sends must still match | Key-order-only changes count as the same event |
+| Mock destinations in PostgreSQL | Public demo APIs do not persist writes; effects must be verifiable | Real providers would need their own idempotency or reconciliation |
+| Form-based workflows (one trigger, two actions) | A tractable, fully tested scope | No visual canvas or branching yet |

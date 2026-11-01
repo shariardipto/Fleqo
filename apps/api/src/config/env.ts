@@ -41,7 +41,7 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
   GITHUB_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
-  // Apple: Services ID + a client-secret JWT signed with your Apple key (max 6 months; see docs/social-auth.md).
+  // Apple: Services ID + a client-secret JWT signed with your Apple key (max 6 months; see docs/authentication.md).
   APPLE_CLIENT_ID: z.string().min(1).optional(),
   APPLE_CLIENT_SECRET: z.string().min(1).optional(),
   APPLE_APP_BUNDLE_IDENTIFIER: z.string().min(1).optional(),

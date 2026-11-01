@@ -2,7 +2,9 @@
 
 **Vercel Hobby + Render Free (API and worker in one container) + Neon Free + Render Free Key Value**
 
-For a low-traffic portfolio demo that may sleep when nobody uses it. It is **not** a production setup: for production, keep the separate API and worker services in [deployment.md](./deployment.md), which this document does not change. Facts about the free tiers were checked against the providers' documentation on 2026-11-01 (links in §2). Nothing has been deployed.
+For a low-traffic portfolio demo that may sleep when nobody uses it. It is **not** a production setup: for production, keep the separate API and worker services in [deployment.md](./deployment.md), which this document does not change. Facts about the free tiers were checked against the providers' documentation on 2026-11-01 (links in §2).
+
+**Live:** [fleqo-web.vercel.app](https://fleqo-web.vercel.app) runs this setup, with email and password sign-in only (no OAuth providers or email service configured).
 
 ## 1. Architecture
 
@@ -29,7 +31,7 @@ Browser ──▶ Vercel Hobby (Next.js, apps/web) ──rewrite /api/*──▶
 | [Render Free web service](https://render.com/docs/free) | 0.1 CPU, 512 MB ([compute plans](https://render.com/docs/compute-plans)); spins down after **15 minutes without inbound traffic**; waking takes about a minute; 750 instance hours per workspace per month; may be restarted at any time; no pre-deploy command ([deploys](https://render.com/docs/deploys)); outbound SMTP ports blocked | The whole backend sleeps, **including the worker**: no background processing while asleep. The first request after a pause waits for the wake-up. Migrations run at start instead of pre-deploy. Email must use HTTPS (Resend), which Fleqo already does |
 | [Render Free Key Value](https://render.com/docs/key-value) | 25 MB, 50 connections, Valkey 8; **no persistence**; may be restarted at any time (data lost); one per workspace | Queue contents can vanish. Fleqo's PostgreSQL outbox re-dispatches unfinished runs (tested in §6). Fleqo uses 4 connections and at most about 7 MB |
 | [Neon Free](https://neon.com/docs/introduction/plans) | 1 GB storage per project; 100 CU-hours per month (~400 h at 0.25 CU); **scales to zero after 5 minutes idle (cannot be disabled)**; 97 direct connections at 0.25 CU ([pooling](https://neon.com/docs/connect/connection-pooling)); TLS with publicly trusted certificates ([connect securely](https://neon.com/docs/connect/connect-securely)) | While the Render service is awake, the worker's outbox poll keeps Neon awake too; both sleep together. Prisma Migrate needs the **direct** (non-pooled) connection string ([Neon + Prisma](https://neon.com/docs/guides/prisma)) |
-| [Vercel Hobby](https://vercel.com/docs/plans/hobby) | Non-commercial personal use only; proxied requests to an external origin time out after **120 s** ([limits](https://vercel.com/docs/limits)) | A sleeping backend (about 1 minute plus Fleqo's own start, §6) wakes within Vercel's proxy window, so the first API call is slow but normally succeeds |
+| [Vercel Hobby](https://vercel.com/docs/plans/hobby) | Non-commercial personal use only; proxied requests to an external origin time out after **120 s** ([limits](https://vercel.com/docs/limits)) | While the backend wakes (about a minute plus Fleqo's own start, §6), Render can answer the first requests with an immediate 502 page instead of holding them (seen on the live demo). The first sign-in after a pause may therefore fail; warm the backend first (§3.6) |
 
 ## 3. Manual deployment (exact settings)
 Create everything in **one region** for Render (e.g. Oregon), and pick the nearest Neon region (e.g. AWS US West 2 for Oregon).
@@ -67,7 +69,7 @@ New Project → the repository → **Root Directory `apps/web`**, framework **Ne
 4. Sign up in the browser, connect the mock services, create the workflow and send simulated orders from **Demo data**.
 
 ### 3.6 Before showing the demo
-The backend sleeps after 15 minutes. About two minutes beforehand, open `https://<render-url>/api/health` (or the app's sign-in page) and wait for it to answer. The landing page is static on Vercel and loads instantly even while the backend sleeps; only signing in and the app need the API.
+The backend sleeps after 15 minutes. About two minutes beforehand, open `https://<render-url>/api/health` and reload until it returns 200; a 502 page in the meantime only means the instance is still spinning up. The landing page is static on Vercel and loads instantly even while the backend sleeps; only signing in and the app need the API.
 
 ## 4. Configuration reference
 | Variable | Demo value | Why |
@@ -79,7 +81,7 @@ The backend sleeps after 15 minutes. About two minutes beforehand, open `https:/
 | `TRUST_PROXY` | `2` | Vercel's proxy and Render's load balancer; verify with `clientIp` in the logs ([deployment.md §8](./deployment.md#8-production-verification)) |
 
 ## 5. Limitations
-- **No background processing while asleep.** Webhooks that arrive while the service sleeps wait for it to wake (through Vercel: up to 120 s). An external sender calling the Render URL directly may time out and must retry. The in-app simulator is the intended way to demo.
+- **No background processing while asleep.** A request that arrives while the service sleeps starts the wake-up but may itself get a 502 or time out, so external webhook senders must retry. The in-app simulator is the intended way to demo.
 - **Slow on 0.1 CPU.** A wake-up is Render's own spin-up (about a minute) plus about 20 s for Fleqo (§6); the very first deploy adds about 20 s for the migration. Sign-in and sign-up take a few seconds (password hashing). Runs are fast once awake (40 runs with retries in 7 s in testing).
 - **Key Value is volatile and small (25 MB).** A restart loses queued jobs (recovered from PostgreSQL within about 3 minutes in testing) and BullMQ's job history; Fleqo's own run history is in PostgreSQL and unaffected. At ~0.9 KB per retained job, the default retention needs about 7 MB. With `noeviction`, a full instance would reject new jobs instead of dropping old ones, and the outbox would retry them.
 - **Neon compute hours.** The database stays awake as long as the Render service is awake. Long sessions consume the 100 CU-hours; Neon suspends compute for the rest of the month if they run out.
@@ -118,7 +120,7 @@ Nothing in this demo setup changes the production architecture. Use [deployment.
 ## 8. Troubleshooting
 | Symptom | Likely cause |
 | --- | --- |
-| First request after a pause hangs for about a minute | The service was asleep; this is expected on Render Free (§3.6) |
+| First request after a pause hangs for about a minute, or returns a 502 page (sign-in fails) | The service was asleep and is still waking; expected on Render Free. Retry after 1–2 minutes (§3.6) |
 | `ROUTER_EXTERNAL_TARGET_ERROR` from Vercel | The backend took more than 120 s to answer (wake-up plus a migration on the first deploy). Reload once it is up |
 | Log: `Migration step failed; retrying` | Neon was resuming or unreachable; it retries 5 times, then the service exits |
 | Log: `The worker keeps crashing; stopping…` | The worker crashed 6 times in 5 minutes; check the lines before it (often `REDIS_URL` or Key Value region) |

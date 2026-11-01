@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fleqo process-level reliability check (release phase R2).
+# Fleqo process-level reliability check.
 #
 # Runs the COMPILED API and worker in production mode against THROWAWAY PostgreSQL + Redis
 # containers (own names and ports), then injects real failures: worker downtime, Redis outage,
