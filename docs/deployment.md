@@ -2,6 +2,8 @@
 
 **Status (2026-11-01): prepared, NOT deployed.** Every artifact below was verified locally (production Docker image, migrations from an empty database, health checks, smoke test). Render facts were checked against Render's documentation on 2026-11-01 (links inline). Nothing here has been provisioned, purchased or published.
 
+> **$0 portfolio demo instead?** One free Render web service running API and worker together, with Neon and Render Key Value free tiers: [deployment-demo.md](./deployment-demo.md). This guide is the production setup with separate services.
+
 ## 1. Architecture
 
 ```

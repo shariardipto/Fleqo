@@ -291,6 +291,7 @@ These notes describe the system as built. Each one names its code location and t
 | Web | `apps/web` (Next.js 16) | `npm run dev:web` (:3000) | Vercel, root `apps/web`, `API_URL` → API |
 | API | `apps/api/src/server.ts` → `createApp()` in `src/app.ts` | `npm run dev:api` (:4000) | Render Web Service `fleqo-api`, pre-deploy `prisma migrate deploy`, health `/api/health` |
 | Worker + dispatcher | `apps/api/src/worker.ts` | `npm run dev:worker` | Render Background Worker `fleqo-worker`, `node dist/worker.js` |
+| Single service (demo only) | `apps/api/src/single-service.ts` | — | Render Free web service, `node dist/single-service.js`: migrations if pending, then API + worker as supervised child processes ([deployment-demo.md](./deployment-demo.md)) |
 
 Both Render services build from `apps/api/Dockerfile` (repository root as context; see docs/deployment.md). The image was built and run in production mode locally, and the smoke test passed against it; nothing has been deployed live.
 

@@ -166,6 +166,8 @@ With `NODE_ENV=production` the API and worker **refuse to start** if `BETTER_AUT
 
 Target: **Vercel** (web) + **Render** (API as a Web Service and worker as a Background Worker, both from one Docker image) + **Render Postgres** and **Render Key Value** (Redis-compatible). Deployment is done by hand in the dashboards; the repository contains no hosting-platform config files.
 
+**$0 demo:** API and worker in one free Render web service (`node dist/single-service.js`), Neon Free and Render Key Value Free, tested under free-tier limits: [docs/deployment-demo.md](docs/deployment-demo.md).
+
 > **Status: not deployed.** The production image (725 MB, non-root) was built and verified locally: migrations on an empty database, production guards, worker health, smoke test 13/13 and graceful SIGTERM. No live deployment was made, because cloud credentials and deployment approval have not been provided. There is no public URL yet.
 
 **Full guide: [docs/deployment.md](docs/deployment.md)** — Render services and settings, Postgres and Key Value (`noeviction`), plan limits, migrations safety, health checks, logging, backups, rollback and the live verification checklist. In short:

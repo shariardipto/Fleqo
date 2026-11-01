@@ -16,6 +16,10 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
 
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  // Interactive-transaction limits (Prisma's defaults). Raise them only on very small CPUs, e.g. a
+  // 0.1-vCPU demo instance, where password hashing alone can outlast the 5 s default.
+  DB_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).default(5000),
+  DB_TRANSACTION_MAX_WAIT_MS: z.coerce.number().int().min(100).default(2000),
   REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
   QUEUE_PREFIX: z.string().min(1).default("fleqo"),
 

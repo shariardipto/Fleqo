@@ -243,3 +243,25 @@ A local emulation of Render's runtime using the production image, built exactly 
 | `npm run smoke` against the API | **13/13** |
 | Free-instance Docker Command `sh -c "… migrate … && node dist/server.js"` | Migrates, serves on 10000, shuts down gracefully on SIGTERM |
 | SIGTERM (`docker stop -t 30`, Render's default shutdown delay) | API and worker exit 0 with "Shutting down …"; no error logs |
+
+## 13. $0 demo: API + worker in one container under free-tier limits (2026-11-01)
+Production image with `node dist/single-service.js`, `--cpus 0.1 --memory 512m` (Render Free), PostgreSQL 17 with TLS and a Neon-style URL (`sslmode=require&channel_binding=require`, no port), Valkey 8 with 25 MB / `noeviction` / no persistence / 50 clients (Render Free Key Value). Full table: [deployment-demo.md §6](./deployment-demo.md#6-measured-results-local-emulation-of-the-free-tiers).
+
+| Check | Result |
+| --- | --- |
+| Cold start: first deploy (migration) / wake-up (fast schema check) / migrations disabled | 36–40 s / **19.8 s** (check 0.8 s vs ~20 s for the Prisma CLI) / 17.8 s to `/api/health` 200 |
+| Memory idle → peak | 145 → 190 MiB of 512 MiB |
+| Smoke | 13/13 |
+| 40 runs, 20 with an injected transient Sheet failure | 40/40 in 7 s; retries only on the failed action, CRM never repeated |
+| DB connections | ≤ 13 under load, all TLS |
+| Key Value | 4 clients; ~0.9 KB per retained job (default retention ≈ 7 MB of 25 MB) |
+| Key Value restart with runs waiting for retries | All recovered from the outbox (161 s), 52 runs = 52 rows, no duplicates |
+| Worker / API `SIGKILL` | Restarted; work continued (API back in 15.3 s) |
+| PostgreSQL restart | No crash; runs continued |
+| Database down for the first 12 s | 2 retries, then a normal start |
+| Crash loop | Exit code 1 after the 6th crash in 5 minutes |
+| `SIGTERM` with runs in flight | 0.6 s, exit 0; interrupted runs completed after the restart |
+| **Found and fixed** | Sign-up failed on 0.1 CPU (`FAILED_TO_CREATE_USER`: Prisma's 5 s interactive-transaction limit, 7.8 s taken). New `DB_TRANSACTION_TIMEOUT_MS`/`DB_TRANSACTION_MAX_WAIT_MS` (defaults unchanged: 5000/2000; demo: 30000/10000) |
+| Known | `/api/ready` can briefly report `redis: unavailable` on 0.1 CPU right after a database reconnect (9/10 OK while idle); Render's health check uses `/api/health` |
+
+Repository checks after the change: lint 0, typecheck 0, **74/74** API tests, build OK. Nothing deployed.

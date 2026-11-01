@@ -398,3 +398,13 @@ Owner brief: remove every Railway-specific configuration (the owner will deploy 
 - Reviewed the Dockerfile, start commands, environment variables, PostgreSQL/Redis connections and the migration process against Render's documented behaviour. Proved it with a local emulation (production image, `PORT=10000`, Render-style internal URLs, PostgreSQL 16, Valkey 8, no internet for the pre-deploy step, smoke 13/13, graceful SIGTERM); see production-test-results.md §12.
 - One deployment issue found and fixed (docs and a Dockerfile comment only): `npx prisma migrate deploy` downloads the newest Prisma release when started outside `/app` (observed: `prisma@8.0.0-rc.29`). The Render Pre-Deploy Command is now `npm run db:deploy` (an existing script that only uses the image's Prisma 7.10.1 and fails loudly if started in the wrong directory).
 - No application code, Dockerfile instruction or dependency changed in this review.
+
+---
+
+# $0 demo deployment: single container (2026-11-01)
+Owner brief: Vercel Hobby + Render Free web service (API and worker in one container) + Neon Free + Render Free Key Value; safe start, shutdown, restarts and migrations on the free plan; keep the separate production architecture; test memory, cold starts, jobs, retries, connections and Redis recovery; document limits and exact settings. No deploys, commits or business-logic changes.
+
+- `apps/api/src/single-service.ts` → `node dist/single-service.js` (same image, different Docker Command). It is a supervisor: fast `_prisma_migrations` check, with `prisma migrate deploy` via the bundled CLI only when needed (retried while Neon wakes); then the unchanged `server.js`, then `worker.js` at nice 10. It restarts crashed children with backoff, exits 1 after 6 crashes in 5 minutes, and forwards SIGTERM with a 25 s grace period.
+- `DB_TRANSACTION_TIMEOUT_MS` / `DB_TRANSACTION_MAX_WAIT_MS` (Prisma client `transactionOptions`, defaults unchanged): needed because sign-up exceeded Prisma's 5 s transaction limit on 0.1 CPU.
+- `deploy/demo/render-single-service.env.example` and `docs/deployment-demo.md` (free-tier facts with sources, exact Neon/Render/Vercel settings, measured results, limitations, troubleshooting). Production docs unchanged apart from a pointer.
+- Verified under emulated free-tier limits (production-test-results.md §13) and with lint/typecheck/74 tests/build.
