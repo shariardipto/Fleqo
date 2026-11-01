@@ -20,10 +20,12 @@ env:
   WEB_ORIGINS: http://localhost:3000
   NPM_CONFIG_UPDATE_NOTIFIER: "false"
 
+# Runners are pinned to Ubuntu 24.04: `ubuntu-latest` is moving to Ubuntu 26, and Playwright's
+# `install --with-deps` needs a distribution it knows. Move to the next LTS deliberately.
 jobs:
   verify:
     name: Lint, typecheck, test, build, E2E, smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
       postgres:
@@ -43,9 +45,9 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -76,11 +78,13 @@ jobs:
       - name: Build API and web
         run: npm run build
 
+      # Runs the output of the build step. The dev scripts would each run `prisma generate` and race
+      # on the same generated client, and their file watchers are not needed here.
       - name: Start API, worker and production web
         run: |
           mkdir -p logs
-          nohup npm run dev:api > logs/api.log 2>&1 &
-          WORKER_HEALTH_PORT=4100 WORKFLOW_BACKOFF_MS=300 nohup npm run dev:worker > logs/worker.log 2>&1 &
+          nohup npm run start --workspace=apps/api > logs/api.log 2>&1 &
+          WORKER_HEALTH_PORT=4100 WORKFLOW_BACKOFF_MS=300 nohup npm run start:worker --workspace=apps/api > logs/worker.log 2>&1 &
           nohup npm run start --workspace=apps/web > logs/web.log 2>&1 &
           npx --yes wait-on@8 -t 120000 http://localhost:4000/api/ready http://localhost:4100/health http://localhost:3000/sign-in
 
@@ -99,7 +103,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: |
@@ -112,11 +116,11 @@ jobs:
 
   reliability:
     name: Process-level reliability (worker/Redis/PostgreSQL restarts)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -125,7 +129,7 @@ jobs:
       - run: bash scripts/reliability-check.sh
       - name: Upload reliability logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: reliability
           path: apps/api/test-results/reliability
@@ -134,10 +138,10 @@ jobs:
 
   docker:
     name: API/worker image builds
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -f apps/api/Dockerfile -t fleqo-api:ci .
       - name: Image size
         run: docker image ls fleqo-api:ci --format "{{.Size}}"
