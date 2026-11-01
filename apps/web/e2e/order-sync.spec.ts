@@ -4,7 +4,7 @@ import { chooseOption, signUpWithOrganization, uniqueEmail } from "./helpers";
 test.describe.configure({ mode: "serial" });
 
 test("operator completes import → workflow → simulation → execution review", async ({ page }) => {
-  const email = await signUpWithOrganization(page, "E2E Store");
+  await signUpWithOrganization(page, "E2E Store");
 
   // ── Connections ───────────────────────────────────────────────────────
   await page.getByRole("link", { name: "Connections" }).click();
@@ -98,8 +98,7 @@ test("operator completes import → workflow → simulation → execution review
   await expect(page.getByText("organization.updated").or(page.getByText("workflow.created")).first()).toBeVisible();
 
   // ── Sign out ──────────────────────────────────────────────────────────
-  await page.getByRole("button", { name: new RegExp(email.split("@")[0].slice(0, 10)) }).click();
-  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/sign-in/);
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/sign-in/);

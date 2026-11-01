@@ -4,7 +4,7 @@
 **Audience:** store operators (Owner/Admin) and team members (Member) running a demo order-sync automation.
 
 ## Principles
-- **Truthful UI.** Every number is a count of persisted records; integrations are labelled as mocks and generated data as synthetic (sidebar status card, "synthetic" badges, connection descriptions).
+- **Truthful UI.** Every number is a count of persisted records; integrations are labelled as mocks and generated data as synthetic ("synthetic" badges, Mock Store / Mock CRM / Mock Sheet names, connection descriptions).
 - **The API is the authority.** Controls are hidden or disabled by role (`/api/me` permissions), but every action is enforced server-side; a 403 shows as a toast.
 - **Every data view has three states:** skeleton while loading, an error alert with **Try again**, and an empty state that explains the next step.
 - **Live where it matters:** dashboard (5 s), executions list (2 s while any run is in flight, otherwise 10 s), execution detail (1.5 s until finished), destination records (5 s).
@@ -15,7 +15,7 @@
 - `/onboarding`: create an organization, or paste an invite link (shown when the user has no organization). Invitations are never listed by email.
 - `/invite/[id]`: invite-link landing page. Signed out → **Create account** / **Sign in** (both return to the link via `?next=`); signed in as the invitee → organization, role, inviter, expiry and **Accept invitation**; any other account → "This invitation cannot be used" + **Use a different account**.
 - Authenticated shell (`(app)/layout.tsx` → `AppShell`):
-  - Desktop (≥ lg): sticky 16 rem sidebar — brand, **organization switcher** (name + role, list of memberships, "New organization"), nav, **system status card** (live API/database/queue health from `/api/ready`, refreshed every minute; release `v1.1`; "Mock integrations · synthetic data"), **user menu** (sign out) and **theme switcher**.
+  - Desktop (≥ lg): sticky 16 rem sidebar — brand, **organization switcher** (name + role, list of memberships, "New organization"), nav, **release label** ("Workflow Automation" and `v1.1`), **user card** (name and email) with the **theme switcher** and a **one-click sign-out** icon beside it.
   - Mobile: top bar with a menu button opening the same content in a left `Sheet`, plus the theme switcher.
   - Guard: `/api/me` → 401 redirects to `/sign-in?next=<path>` (only same-site relative `next` values are honoured); no active org → auto-select the first membership or go to `/onboarding`.
 

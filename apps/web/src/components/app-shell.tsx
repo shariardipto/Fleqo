@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Building2,
@@ -9,6 +9,7 @@ import {
   ChevronsUpDown,
   Database,
   LayoutDashboard,
+  Loader2,
   LogOut,
   Menu,
   Plus,
@@ -124,72 +125,57 @@ function OrgSwitcher({ me }: { me: Me }) {
   );
 }
 
-function UserMenu({ me }: { me: Me }) {
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  async function signOut() {
-    await authClient.signOut();
-    queryClient.clear();
-    router.replace("/sign-in");
-  }
+function UserCard({ me }: { me: Me }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-auto w-full justify-start gap-2 px-3 py-2">
-          <span className="flex size-7 items-center justify-center rounded-full bg-muted text-xs font-semibold uppercase">
-            {me.user.name.slice(0, 2)}
-          </span>
-          <span className="min-w-0 text-left">
-            <span className="block truncate text-sm">{me.user.name}</span>
-            <span className="block truncate text-xs text-muted-foreground">{me.user.email}</span>
-          </span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56" align="start">
-        <DropdownMenuItem onSelect={signOut}>
-          <LogOut className="size-4" /> Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="flex min-w-0 items-center gap-2 px-2 py-2" title={`${me.user.name} · ${me.user.email}`}>
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold uppercase" aria-hidden>
+        {me.user.name.slice(0, 2)}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm">{me.user.name}</span>
+        <span className="block truncate text-xs text-muted-foreground">{me.user.email}</span>
+      </span>
+    </div>
   );
 }
 
-type Readiness = { database: "connected" | "unavailable"; redis: "connected" | "unavailable" };
-
-// /api/ready answers 503 with the same body when a dependency is down, so read the body either way.
-async function fetchReadiness({ signal }: { signal: AbortSignal }): Promise<Readiness> {
-  const response = await fetch("/api/ready", { signal, cache: "no-store" });
-  const body = await response.json().catch(() => null);
-  if (!body?.database || !body?.redis) throw new Error(`Readiness check failed (${response.status})`);
-  return body;
-}
-
-const STATUS = {
-  checking: { dot: "bg-muted-foreground/50", label: "Checking status…" },
-  ok: { dot: "bg-success-solid", label: "All systems operational" },
-  queue: { dot: "bg-warning", label: "Queue unavailable" },
-  database: { dot: "bg-destructive", label: "Database unavailable" },
-  down: { dot: "bg-destructive", label: "API unreachable" },
-} as const;
-
-/** Live API, database and queue health, the release and the demo-data notice. */
-function SystemStatus() {
-  const { data, isError } = useQuery({ queryKey: ["system-status"], queryFn: fetchReadiness, refetchInterval: 60_000, retry: false });
-  const state = isError ? "down" : !data ? "checking" : data.database !== "connected" ? "database" : data.redis !== "connected" ? "queue" : "ok";
-  const { dot, label } = STATUS[state];
+/** One-click sign out. */
+function SignOutButton() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const signOut = useMutation({
+    mutationFn: async () => {
+      const { error } = await authClient.signOut();
+      if (error) throw new Error(error.message ?? "Could not sign out");
+    },
+    onSuccess: () => {
+      queryClient.clear();
+      router.replace("/sign-in");
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
 
   return (
-    <div className="rounded-lg border px-3 py-2 text-[11px] leading-snug" role="status" data-testid="system-status" data-state={state}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5 font-medium">
-          <span className={cn("size-1.5 shrink-0 rounded-full", dot)} aria-hidden />
-          <span className="truncate">{label}</span>
-        </span>
-        <span className="shrink-0 font-mono text-muted-foreground">v{APP_VERSION}</span>
-      </div>
-      <p className="mt-0.5 text-muted-foreground">
-        {state === "queue" ? "Events are kept and run later" : "Mock integrations · synthetic data"}
-      </p>
+    <Button
+      variant="ghost"
+      size="icon"
+      className="shrink-0 text-muted-foreground hover:text-foreground"
+      aria-label="Sign out"
+      title="Sign out"
+      disabled={signOut.isPending}
+      onClick={() => signOut.mutate()}
+    >
+      {signOut.isPending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <LogOut className="size-4" aria-hidden />}
+    </Button>
+  );
+}
+
+/** Product name and release. */
+function ReleaseLabel() {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[11px]" data-testid="release-label">
+      <span className="truncate font-medium">Workflow Automation</span>
+      <span className="shrink-0 font-mono text-muted-foreground">v{APP_VERSION}</span>
     </div>
   );
 }
@@ -201,12 +187,13 @@ function SidebarContent({ me, onNavigate }: { me: Me; onNavigate?: () => void })
       <OrgSwitcher me={me} />
       <NavLinks onNavigate={onNavigate} />
       <div className="mt-auto space-y-2">
-        <SystemStatus />
-        <div className="flex items-center gap-1">
+        <ReleaseLabel />
+        <div className="flex items-center gap-0.5">
           <div className="min-w-0 flex-1">
-            <UserMenu me={me} />
+            <UserCard me={me} />
           </div>
-          <ThemeToggle />
+          <ThemeToggle className="shrink-0" />
+          <SignOutButton />
         </div>
       </div>
     </div>

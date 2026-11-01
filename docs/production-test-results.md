@@ -146,7 +146,7 @@ New file `social-auth.test.ts` (7 tests; Google's token endpoint is stubbed, eve
 | Cancelled / tampered | `error=access_denied` and a forged `state` → error redirect, no session |
 
 ### 9.3 E2E (`E2E_BASE_URL=http://localhost:3400 npx playwright test`, production build, CSP enforced)
-**25 passed (1.4 min)** in a single run (desktop 24, Pixel 7 1). The console-error fixture was active for every test.
+**25 passed (1.6 min)** in a single run (desktop 24, Pixel 7 1). The console-error fixture was active for every test.
 
 | Spec | Tests | What it proves |
 | --- | --- | --- |
@@ -154,7 +154,7 @@ New file `social-auth.test.ts` (7 tests; Google's token endpoint is stubbed, eve
 | `theme` (**new**) | 3 | One click flips light ↔ dark (no menu) on `/` and in the app; the choice persists across reloads, `/sign-in` and the app, and is applied at `domcontentloaded` (no flash); first visits follow the emulated OS preference live until a click overrides it; the toggle (Enter/Space) and the Settings selector (arrow keys) work by keyboard |
 | `accessibility` (**new**) | 4 | axe-core WCAG 2.0/2.1 A + AA on `/`, `/docs`, `/sign-in`, `/sign-up`, `/onboarding`, `/dashboard`, `/connections`, `/workflows/new`, `/executions`, `/demo`, `/team`, `/settings` — **light and dark** — 0 serious/critical violations |
 | `social-auth` (**new**) | 3 | Only configured providers (Google, GitHub) on sign-in and sign-up; Google starts an authorization-code + PKCE request to `accounts.google.com` (intercepted, never sent); cancelled consent and an existing-account conflict show clear messages without echoing the URL text |
-| `system-status` (**new**) | 1 | The app sidebar shows real readiness from the API ("All systems operational"), `v1.1` and the mock-integrations notice; stubbed `/api/ready` responses show "Queue unavailable" (Redis down, 503) and "API unreachable" (request fails) |
+| `release-label` (**new**) | 1 | The app sidebar shows "Workflow Automation" and `v1.1` |
 | `connections-permissions`, `order-sync`, `organizations`, `mobile` | 5 | v1.0 regression suite unchanged and green with the redesigned auth forms |
 
 ### 9.4 Regression
