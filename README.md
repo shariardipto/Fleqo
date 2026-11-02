@@ -272,6 +272,7 @@ Every variable is documented in [`apps/api/.env.example`](apps/api/.env.example)
 
 | Document | Contents |
 | --- | --- |
+| [case-study.md](docs/case-study.md) | The project story: problem, engineering decisions, verification, free-tier deployment, results and lessons |
 | [architecture.md](docs/architecture.md) | Components, event lifecycle, idempotency layers, request pipeline, design decisions |
 | [database-erd.md](docs/database-erd.md) | Entity diagram, constraints and indexes, tenancy rules |
 | [api-spec.yaml](docs/api-spec.yaml) | OpenAPI 3.1 contract |
